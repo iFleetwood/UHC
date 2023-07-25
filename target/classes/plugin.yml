@@ -1,0 +1,4 @@
+name: UHC
+version: 1.0-SNAPSHOT
+main: cc.kasumi.uhc.UHC
+api-version: 1.13

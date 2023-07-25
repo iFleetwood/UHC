@@ -1,0 +1,3 @@
+name: UHC
+version: ${project.version}
+main: cc.kasumi.uhc.UHC
