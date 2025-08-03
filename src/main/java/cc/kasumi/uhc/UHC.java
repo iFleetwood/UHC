@@ -1,8 +1,6 @@
 package cc.kasumi.uhc;
 
-import cc.kasumi.uhc.command.ScatterCommand;
-import cc.kasumi.uhc.command.StartCommand;
-import cc.kasumi.uhc.command.TestCommand;
+import cc.kasumi.uhc.command.*;
 import cc.kasumi.uhc.game.Game;
 import cc.kasumi.uhc.listener.PlayerListener;
 import co.aikar.commands.PaperCommandManager;
@@ -56,5 +54,7 @@ public final class UHC extends JavaPlugin {
         paperCommandManager.registerCommand(new StartCommand());
         paperCommandManager.registerCommand(new ScatterCommand());
         paperCommandManager.registerCommand(new TestCommand());
+        paperCommandManager.registerCommand(new StateCommand());
+        paperCommandManager.registerCommand(new TestBorderCommand());
     }
 }

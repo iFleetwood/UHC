@@ -1,6 +1,7 @@
 package cc.kasumi.uhc.game;
 
 import cc.kasumi.uhc.UHC;
+import cc.kasumi.uhc.combatlog.CombatLogPlayer;
 import cc.kasumi.uhc.combatlog.CombatLogVillagerManager;
 import cc.kasumi.uhc.game.state.ActiveGameState;
 import cc.kasumi.uhc.game.state.ScatteringGameState;
@@ -8,15 +9,19 @@ import cc.kasumi.uhc.game.state.WaitingGameState;
 import cc.kasumi.uhc.game.task.*;
 import cc.kasumi.uhc.player.PlayerState;
 import cc.kasumi.uhc.player.UHCPlayer;
+import cc.kasumi.uhc.util.GameUtil;
 import lombok.Getter;
 import lombok.Setter;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
+import org.bukkit.WorldBorder;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Villager;
 
 import java.util.*;
 
 @Getter
+@Setter
 public class Game {
 
     private final Map<UUID, UHCPlayer> players = new HashMap<>();
@@ -40,29 +45,47 @@ public class Game {
 
     private long startTimeMillis;
 
-    @Setter
     private boolean pvpEnabled = false;
 
-    @Setter
     private String worldName = "world";
 
     private boolean startCountdownStarted = false;
 
     public Game() {
         this.state.onEnable();
-        executeWorldBorderCommand(initialBorderSize, worldName);
+        setWorldBorder(initialBorderSize);
         initWorldEnvironment(Bukkit.getWorld(worldName));
     }
 
-    public void setGameState(GameState state) {
+    public void setGameState(GameState newState) {
+        if (!isValidTransition(this.state, newState)) {
+            throw new IllegalStateException("Invalid transition from " +
+                    this.state.getClass().getSimpleName() + " to " +
+                    newState.getClass().getSimpleName());
+        }
+
         this.state.onDisable();
-        this.state = state;
-        state.onEnable();
+        this.state = newState;
+        newState.onEnable();
+    }
+
+    private boolean isValidTransition(GameState from, GameState to) {
+        // Waiting -> Scattering -> Active
+        if (from instanceof WaitingGameState) {
+            return to instanceof ScatteringGameState;
+        }
+        if (from instanceof ScatteringGameState) {
+            return to instanceof ActiveGameState;
+        }
+        if (from instanceof ActiveGameState) {
+            return false; // Game is over, no transitions allowed
+        }
+        return false;
     }
 
     public void gameStartRunnable(int time) {
         this.startCountdownStarted = true;
-        Bukkit.getScheduler().runTask(UHC.getInstance(), new StartTask(this, time));
+        new StartTask(this, time).schedule();
     }
 
     public void startScattering() {
@@ -74,10 +97,12 @@ public class Game {
         setGameState(new ActiveGameState(this));
 
         this.startTimeMillis = System.currentTimeMillis();
-        executeWorldBorderCommand(initialBorderSize, worldName);
-        Bukkit.getScheduler().runTask(UHC.getInstance(), new FinalHealTask(this, getHealTime()));
-        Bukkit.getScheduler().runTask(UHC.getInstance(), new PvPEnableTask(this, getPvpTime()));
-        Bukkit.getScheduler().runTask(UHC.getInstance(), new BorderShrinkTask(this, getShrinkInitialBorder()));
+
+        buildSetInitialBorder();
+
+        new FinalHealTask(this, getHealTime()).schedule();
+        new PvPEnableTask(this, getPvpTime()).schedule();
+        new BorderShrinkTask(this, getShrinkInitialBorder()).schedule();
         players.forEach((uuid, uhcPlayer) -> uhcPlayer.setPlayerStateAndManage(PlayerState.ALIVE));
     }
 
@@ -131,17 +156,50 @@ public class Game {
         world.setGameRuleValue("naturalRegeneration", "false");
     }
 
-    public void executeWorldBorderCommand(int borderSize, String worldName) {
-        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "wb " + worldName + " setcorners " + borderSize + " " + borderSize + " -" + borderSize + " -" + borderSize);
+    private void setWorldBorder(int borderSize) {
+        World world = Bukkit.getWorld(worldName);
+        WorldBorder worldBorder = world.getWorldBorder();
+        worldBorder.setCenter(0.5, 0.5);  // Offset center by 0.5
+        worldBorder.setSize(borderSize * 2 - 1.5);
+
+        for (Player player : world.getPlayers()) {
+            if (!GameUtil.isEntityInBorder(player, worldBorder)) {
+                GameUtil.teleportToNearestBorderPoint(player, worldBorder);
+            }
+        }
+
+        for (Map.Entry<Villager, CombatLogPlayer> villagerCombatLogPlayerEntry :combatLogVillagerManager.getCombatLogVillagers().entrySet()) {
+            Villager villager = villagerCombatLogPlayerEntry.getKey();
+            CombatLogPlayer combatLogPlayer = villagerCombatLogPlayerEntry.getValue();
+
+            if (!GameUtil.isEntityInBorder(villager, worldBorder)) {
+                combatLogPlayer.setMoved(true);
+                combatLogPlayer.setLocation(GameUtil.teleportToNearestBorderPoint(villager, worldBorder));
+                //*todo unload the old chunk and make new chunk not unload
+            }
+        }
+    }
+
+    private void buildSetBorder(int borderSize) {
+        setWorldBorder(borderSize);
+        setCurrentBorderSize(borderSize);
+        GameUtil.shrinkBorder(borderSize, Bukkit.getWorld(worldName));
+    }
+
+    public void buildSetInitialBorder() {
+        buildSetBorder(initialBorderSize);
     }
 
     public void shrinkBorder() {
         this.currentBorderSize = getNextBorder();
-        executeWorldBorderCommand(currentBorderSize, worldName);
+        buildSetBorder(currentBorderSize);
     }
 
     public int getNextBorder() {
-        return currentBorderSize > 500 ? currentBorderSize - 500 : currentBorderSize >= 500 ? currentBorderSize / 2 : currentBorderSize >= 250 ? currentBorderSize - 150 : currentBorderSize / 2;
+        if (currentBorderSize > 500) return currentBorderSize - 500;
+        if (currentBorderSize > 250) return currentBorderSize / 2;
+        if (currentBorderSize > 100) return currentBorderSize - 50;
+        return Math.max(currentBorderSize / 2, finalBorderSize);
     }
 
     public boolean canBorderShrinkMore() {

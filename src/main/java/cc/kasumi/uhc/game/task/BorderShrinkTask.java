@@ -34,9 +34,8 @@ public class BorderShrinkTask extends CountDownTask {
 
         if (game.canBorderShrinkMore()) {
             Bukkit.broadcastMessage("");
-            timeBefore = game.getShrinkInterval();
-
-            Bukkit.getScheduler().runTask(UHC.getInstance(), this);
+            // Schedule a NEW BorderShrinkTask instead of reusing this one
+            new BorderShrinkTask(game, game.getShrinkInterval()).schedule();
         }
     }
 }

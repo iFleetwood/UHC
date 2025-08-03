@@ -13,6 +13,6 @@ public class StateCommand extends BaseCommand {
 
     @Default
     public void onStateCommand(CommandSender sender) {
-        sender.sendMessage(UHC.getInstance().getGame().getState().);
+        sender.sendMessage(UHC.getInstance().getGame().getState().getClass().getSimpleName());
     }
 }

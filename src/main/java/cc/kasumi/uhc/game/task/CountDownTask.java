@@ -46,4 +46,11 @@ public abstract class CountDownTask implements Runnable {
             Bukkit.getScheduler().runTaskLater(UHC.getInstance(), this, 20);
         }
     }
+
+    /**
+     * Schedules this task to run immediately
+     */
+    public void schedule() {
+        Bukkit.getScheduler().runTask(UHC.getInstance(), this);
+    }
 }

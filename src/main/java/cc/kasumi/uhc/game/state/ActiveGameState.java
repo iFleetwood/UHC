@@ -60,6 +60,14 @@ public class ActiveGameState extends GameState {
 
         if (state == PlayerState.COMBAT_LOG) {
             uhcPlayer.setState(PlayerState.ALIVE);
+            // TODO Fix so we don't loop twice though the entry set
+
+            CombatLogPlayer combatLogPlayer = combatLogVillagerManager.getVillagerMapEntryByPlayerUUID(uuid).getValue();
+
+            if (combatLogPlayer.isMoved()) {
+                player.teleport(combatLogPlayer.getLocation());
+            }
+
             combatLogVillagerManager.deSpawnCombatLogVillager(uuid);
 
             return;
@@ -146,6 +154,16 @@ public class ActiveGameState extends GameState {
         Entity damager = event.getDamager();
 
         if (!(entity instanceof Player)) {
+            if (!(entity instanceof Villager)) {
+                return;
+            }
+
+            Villager villager = (Villager) entity;
+
+            if (combatLogVillagerManager.containsVillager(villager) && !game.isPvpEnabled()) {
+                event.setCancelled(true);
+            }
+
             return;
         }
 
