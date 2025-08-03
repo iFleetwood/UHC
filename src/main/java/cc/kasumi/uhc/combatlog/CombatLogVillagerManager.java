@@ -2,19 +2,20 @@ package cc.kasumi.uhc.combatlog;
 
 import cc.kasumi.commons.util.ItemStackUtil;
 import cc.kasumi.uhc.UHC;
-import cc.kasumi.uhc.combatlog.task.CombatLogTask;
+import cc.kasumi.uhc.combatlog.task.CombatLogVillagerTask;
 import cc.kasumi.uhc.game.Game;
 import cc.kasumi.uhc.inventory.CachedInventory;
 import cc.kasumi.uhc.player.UHCPlayer;
+import cc.kasumi.uhc.util.GameUtil;
 import lombok.Getter;
 import lombok.Setter;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.World;
+import org.bukkit.WorldBorder;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Villager;
-import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.*;
@@ -22,115 +23,217 @@ import java.util.*;
 @Getter
 public class CombatLogVillagerManager {
 
-    private final Map<Villager, CombatLogPlayer> combatLogVillagers = new HashMap<>();
-    private final Set<Chunk> combatLogVillagerChunk = new HashSet<>();
+    private static final int COMBAT_LOG_TIMEOUT_SECONDS = 180; // 3 minutes
+    private static final double VILLAGER_HEALTH = 8.0D;
 
+    private final Map<Villager, CombatLogPlayer> combatLogVillagers = new HashMap<>();
+    private final Set<Chunk> combatLogVillagerChunks = new HashSet<>();
     private final Game game;
 
     @Setter
-    private BukkitTask bukkitTask;
+    private BukkitTask positionCheckTask;
 
     public CombatLogVillagerManager(Game game) {
         this.game = game;
     }
 
-    public void spawnCombatLogVillager(UUID playerUUID, Player player) { // Used for EntityDeathEvent in ActiveGameState
-        Chunk playerChunk = player.getLocation().getChunk();
+    /**
+     * Spawns a combat log villager when a player disconnects during active gameplay
+     */
+    public void spawnCombatLogVillager(UUID playerUUID, Player player) {
         Location spawnLocation = player.getLocation().clone();
+        Chunk playerChunk = spawnLocation.getChunk();
 
-        Villager villager = (Villager) spawnLocation.getWorld().spawnEntity(spawnLocation, EntityType.VILLAGER);
-        villager.setCustomName(player.getName());
-        villager.setCustomNameVisible(true);
-        villager.setHealth(8.0D);
-        Villager.Profession prof = Villager.Profession.FARMER;
-        villager.setProfession(prof);
-
-        CombatLogPlayer combatLogPlayer = new CombatLogPlayer(playerUUID, player, spawnLocation,
-                new CombatLogTask(playerUUID).runTaskLater(UHC.getInstance(), 3 * 60 * 20));
-
+        Villager villager = createVillager(spawnLocation, player.getName());
+        BukkitTask timeoutTask = createTimeoutTask(playerUUID);
+        CombatLogPlayer combatLogPlayer = new CombatLogPlayer(playerUUID, player, spawnLocation, timeoutTask);
 
         combatLogVillagers.put(villager, combatLogPlayer);
-        combatLogVillagerChunk.add(playerChunk);
+        combatLogVillagerChunks.add(playerChunk);
     }
 
-    public void deSpawnCombatLogVillager(UUID playerUUID) { // Used for PlayerJoinEvent in ActiveGameState
-        Map.Entry<Villager, CombatLogPlayer> villagerCombatLogPlayerEntry = getVillagerMapEntryByPlayerUUID(playerUUID);
+    /**
+     * Removes combat log villager when player rejoins (without killing)
+     */
+    public void deSpawnCombatLogVillager(UUID playerUUID) {
+        CombatLogEntry entry = findCombatLogEntry(playerUUID);
+        if (entry == null) return;
 
-        if (villagerCombatLogPlayerEntry == null) {
-            return;
-        }
-
-        Villager villager = villagerCombatLogPlayerEntry.getKey();
-        CombatLogPlayer combatLogPlayer = villagerCombatLogPlayerEntry.getValue();
-
-        combatLogPlayer.getBukkitTask().cancel(); // Cancel task
-        combatLogVillagerChunk.remove(villager.getLocation().getChunk());
-        combatLogVillagers.remove(villager);
-        villager.remove();
+        cleanupCombatLogVillager(entry, false);
     }
 
-    public void deSpawnAndKillCombatLogVillager(UUID playerUUID) { // Used for CombatLogTask
-        Map.Entry<Villager, CombatLogPlayer> villagerCombatLogPlayerEntry = getVillagerMapEntryByPlayerUUID(playerUUID);
+    /**
+     * Removes and kills combat log villager (drops items, removes from game)
+     */
+    public void deSpawnAndKillCombatLogVillager(UUID playerUUID) {
+        CombatLogEntry entry = findCombatLogEntry(playerUUID);
+        if (entry == null) return;
 
-        if (villagerCombatLogPlayerEntry == null) {
-            return;
-        }
-
-        Villager villager = villagerCombatLogPlayerEntry.getKey();
-        CombatLogPlayer combatLogPlayer = villagerCombatLogPlayerEntry.getValue();
-
-        dropItems(villager, combatLogPlayer);
-        combatLogVillagerChunk.remove(villager.getLocation().getChunk());
-        combatLogVillagers.remove(villager);
-        villager.remove();
+        cleanupCombatLogVillager(entry, true);
+        game.removePlayer(playerUUID);
     }
 
+    /**
+     * Handles when a combat log villager is killed by another player or entity
+     */
     public void killCombatLogVillager(Villager villager, CombatLogPlayer combatLogPlayer) {
         combatLogPlayer.getBukkitTask().cancel();
-        dropItems(villager, combatLogPlayer);
+        dropCombatLogItems(villager, combatLogPlayer);
+
         combatLogVillagers.remove(villager);
-        combatLogVillagerChunk.remove(villager.getLocation().getChunk());
+        combatLogVillagerChunks.remove(villager.getLocation().getChunk());
     }
 
-    public void dropItems(Villager villager, CombatLogPlayer combatLogPlayer) {
-        Location location = villager.getLocation().clone();
-        World world = location.getWorld();
-        CachedInventory cachedInventory = combatLogPlayer.getCachedInventory();
-
-        for (ItemStack content : cachedInventory.getContents()) {
-            if (ItemStackUtil.isNullOrAir(content)) continue;
-
-            world.dropItemNaturally(location, content);
-        }
-
-        for (ItemStack armorContent : cachedInventory.getArmorContents()) {
-            if (ItemStackUtil.isNullOrAir(armorContent)) continue;
-
-            world.dropItemNaturally(location, armorContent);
-        }
-    }
-
-    public boolean containsVillager(Villager villager) {
+    /**
+     * Checks if a villager is a combat log villager
+     */
+    public boolean isControlledVillager(Villager villager) {
         return combatLogVillagers.containsKey(villager);
     }
 
+    /**
+     * Gets the UHC player associated with a combat log villager
+     */
     public UHCPlayer getUHCPlayerByVillager(Villager villager) {
-        return game.getUHCPlayer(combatLogVillagers.get(villager).getUuid());
+        CombatLogPlayer combatLogPlayer = combatLogVillagers.get(villager);
+        return combatLogPlayer != null ? game.getUHCPlayer(combatLogPlayer.getUuid()) : null;
     }
 
+    /**
+     * Gets the combat log player data for a villager
+     */
     public CombatLogPlayer getCombatLogPlayer(Villager villager) {
         return combatLogVillagers.get(villager);
     }
 
-    public Map.Entry<Villager, CombatLogPlayer> getVillagerMapEntryByPlayerUUID(UUID playerUUID) {
-        for (Map.Entry<Villager, CombatLogPlayer> villagerCombatLogPlayerEntry : combatLogVillagers.entrySet()) {
-            if (!villagerCombatLogPlayerEntry.getValue().getUuid().equals(playerUUID)) {
-                continue;
-            }
+    /**
+     * Finds a combat log entry by player UUID
+     */
+    public CombatLogEntry findCombatLogEntry(UUID playerUUID) {
+        return combatLogVillagers.entrySet().stream()
+                .filter(entry -> entry.getValue().getUuid().equals(playerUUID))
+                .map(entry -> new CombatLogEntry(entry.getKey(), entry.getValue()))
+                .findFirst()
+                .orElse(null);
+    }
 
-            return villagerCombatLogPlayerEntry;
+    /**
+     * Gets all chunks that contain combat log villagers (for chunk unload prevention)
+     */
+    public Set<Chunk> getCombatLogVillagerChunks() {
+        return Collections.unmodifiableSet(combatLogVillagerChunks);
+    }
+
+    /**
+     * Updates chunk tracking when a villager moves between chunks
+     */
+    public void updateVillagerChunk(Chunk oldChunk, Chunk newChunk) {
+        combatLogVillagerChunks.remove(oldChunk);
+        combatLogVillagerChunks.add(newChunk);
+    }
+
+    /**
+     * Checks if a chunk contains combat log villagers
+     */
+    public boolean containsVillagerChunk(Chunk chunk) {
+        return combatLogVillagerChunks.contains(chunk);
+    }
+
+    /**
+     * Handles border shrinking by teleporting any villagers outside the border
+     */
+    public void handleBorderShrink(WorldBorder worldBorder) {
+        for (Map.Entry<Villager, CombatLogPlayer> entry : combatLogVillagers.entrySet()) {
+            Villager villager = entry.getKey();
+            CombatLogPlayer combatLogPlayer = entry.getValue();
+
+            if (!GameUtil.isEntityInBorder(villager, worldBorder)) {
+                relocateVillagerToBorder(villager, combatLogPlayer, worldBorder);
+            }
+        }
+    }
+
+    // Private helper methods
+
+    private Villager createVillager(Location location, String playerName) {
+        World world = location.getWorld();
+        Villager villager = (Villager) world.spawnEntity(location, EntityType.VILLAGER);
+
+        villager.setCustomName(playerName);
+        villager.setCustomNameVisible(true);
+        villager.setHealth(VILLAGER_HEALTH);
+        villager.setProfession(Villager.Profession.FARMER);
+
+        return villager;
+    }
+
+    private BukkitTask createTimeoutTask(UUID playerUUID) {
+        return new CombatLogVillagerTask(playerUUID)
+                .runTaskLater(UHC.getInstance(), COMBAT_LOG_TIMEOUT_SECONDS * 20L);
+    }
+
+    private void cleanupCombatLogVillager(CombatLogEntry entry, boolean dropItems) {
+        Villager villager = entry.getVillager();
+        CombatLogPlayer combatLogPlayer = entry.getCombatLogPlayer();
+
+        // Cancel timeout task
+        combatLogPlayer.getBukkitTask().cancel();
+
+        // Drop items if this is a kill
+        if (dropItems) {
+            dropCombatLogItems(villager, combatLogPlayer);
         }
 
-        return null;
+        // Remove from tracking
+        combatLogVillagerChunks.remove(villager.getLocation().getChunk());
+        combatLogVillagers.remove(villager);
+
+        // Remove villager entity
+        villager.remove();
+    }
+
+    private void dropCombatLogItems(Villager villager, CombatLogPlayer combatLogPlayer) {
+        Location dropLocation = villager.getLocation().clone();
+        World world = dropLocation.getWorld();
+        CachedInventory cachedInventory = combatLogPlayer.getCachedInventory();
+
+        // Drop main inventory items
+        Arrays.stream(cachedInventory.getContents())
+                .filter(item -> !ItemStackUtil.isNullOrAir(item))
+                .forEach(item -> world.dropItemNaturally(dropLocation, item));
+
+        // Drop armor items
+        Arrays.stream(cachedInventory.getArmorContents())
+                .filter(item -> !ItemStackUtil.isNullOrAir(item))
+                .forEach(item -> world.dropItemNaturally(dropLocation, item));
+    }
+
+    private void relocateVillagerToBorder(Villager villager, CombatLogPlayer combatLogPlayer, WorldBorder worldBorder) {
+        Location oldLocation = villager.getLocation().clone();
+        combatLogPlayer.setMoved(true);
+
+        Location newLocation = GameUtil.teleportToNearestBorderPoint(villager, worldBorder);
+        combatLogPlayer.setLocation(newLocation);
+
+        Chunk oldChunk = oldLocation.getChunk();
+        Chunk newChunk = newLocation.getChunk();
+
+        if (!oldChunk.equals(newChunk)) {
+            updateVillagerChunk(oldChunk, newChunk);
+        }
+    }
+
+    /**
+     * Data class to hold villager and combat log player together
+     */
+    @Getter
+    public static class CombatLogEntry {
+        private final Villager villager;
+        private final CombatLogPlayer combatLogPlayer;
+
+        public CombatLogEntry(Villager villager, CombatLogPlayer combatLogPlayer) {
+            this.villager = villager;
+            this.combatLogPlayer = combatLogPlayer;
+        }
     }
 }

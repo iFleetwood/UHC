@@ -6,11 +6,11 @@ import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.UUID;
 
-public class CombatLogTask extends BukkitRunnable {
+public class CombatLogVillagerTask extends BukkitRunnable {
 
     private final UUID uuid;
 
-    public CombatLogTask(UUID uuid) {
+    public CombatLogVillagerTask(UUID uuid) {
         this.uuid = uuid;
     }
 

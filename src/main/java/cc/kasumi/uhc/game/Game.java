@@ -12,9 +12,7 @@ import cc.kasumi.uhc.player.UHCPlayer;
 import cc.kasumi.uhc.util.GameUtil;
 import lombok.Getter;
 import lombok.Setter;
-import org.bukkit.Bukkit;
-import org.bukkit.World;
-import org.bukkit.WorldBorder;
+import org.bukkit.*;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Villager;
 
@@ -168,16 +166,7 @@ public class Game {
             }
         }
 
-        for (Map.Entry<Villager, CombatLogPlayer> villagerCombatLogPlayerEntry :combatLogVillagerManager.getCombatLogVillagers().entrySet()) {
-            Villager villager = villagerCombatLogPlayerEntry.getKey();
-            CombatLogPlayer combatLogPlayer = villagerCombatLogPlayerEntry.getValue();
-
-            if (!GameUtil.isEntityInBorder(villager, worldBorder)) {
-                combatLogPlayer.setMoved(true);
-                combatLogPlayer.setLocation(GameUtil.teleportToNearestBorderPoint(villager, worldBorder));
-                //*todo unload the old chunk and make new chunk not unload
-            }
-        }
+        combatLogVillagerManager.handleBorderShrink(worldBorder);
     }
 
     private void buildSetBorder(int borderSize) {

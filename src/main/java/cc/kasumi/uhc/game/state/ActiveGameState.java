@@ -36,14 +36,18 @@ public class ActiveGameState extends GameState {
         UHC uhc = UHC.getInstance();
 
         Bukkit.getPluginManager().registerEvents(this, uhc);
-        combatLogVillagerManager.setBukkitTask(new CombatVillagerCheckTask(combatLogVillagerManager).runTaskTimer(uhc, 20, 10));
+        combatLogVillagerManager.setPositionCheckTask(
+                new CombatVillagerCheckTask(combatLogVillagerManager).runTaskTimer(uhc, 20, 10)
+        );
     }
 
     @Override
     public void onDisable() {
         HandlerList.unregisterAll(this);
-        combatLogVillagerManager.getBukkitTask().cancel();
-        combatLogVillagerManager.setBukkitTask(null);
+        if (combatLogVillagerManager.getPositionCheckTask() != null) {
+            combatLogVillagerManager.getPositionCheckTask().cancel();
+            combatLogVillagerManager.setPositionCheckTask(null);
+        }
     }
 
     @EventHandler
@@ -62,10 +66,9 @@ public class ActiveGameState extends GameState {
             uhcPlayer.setState(PlayerState.ALIVE);
             // TODO Fix so we don't loop twice though the entry set
 
-            CombatLogPlayer combatLogPlayer = combatLogVillagerManager.getVillagerMapEntryByPlayerUUID(uuid).getValue();
-
-            if (combatLogPlayer.isMoved()) {
-                player.teleport(combatLogPlayer.getLocation());
+            CombatLogVillagerManager.CombatLogEntry entry = combatLogVillagerManager.findCombatLogEntry(uuid);
+            if (entry != null && entry.getCombatLogPlayer().isMoved()) {
+                player.teleport(entry.getCombatLogPlayer().getLocation());
             }
 
             combatLogVillagerManager.deSpawnCombatLogVillager(uuid);
@@ -104,7 +107,7 @@ public class ActiveGameState extends GameState {
             return;
         }
 
-        if (!combatLogVillagerManager.containsVillager(villager)) {
+        if (!combatLogVillagerManager.getCombatLogVillagers().containsKey(villager)) {
             return;
         }
 
@@ -130,18 +133,16 @@ public class ActiveGameState extends GameState {
 
     @EventHandler
     public void onChunkUnload(ChunkUnloadEvent event) {
-        if (!combatLogVillagerManager.getCombatLogVillagerChunk().contains(event.getChunk())) {
-            return;
+        if (combatLogVillagerManager.containsVillagerChunk(event.getChunk())) {
+            event.setCancelled(true);
         }
-
-        event.setCancelled(true);
     }
 
     @EventHandler
     public void onEntityTarget(EntityTargetLivingEntityEvent event) {
         LivingEntity target = event.getTarget();
 
-        if (!(target instanceof Villager villager) || !combatLogVillagerManager.containsVillager(villager)) {
+        if (!(target instanceof Villager villager) || !combatLogVillagerManager.getCombatLogVillagers().containsKey(villager)) {
             return;
         }
 
@@ -160,7 +161,7 @@ public class ActiveGameState extends GameState {
 
             Villager villager = (Villager) entity;
 
-            if (combatLogVillagerManager.containsVillager(villager) && !game.isPvpEnabled()) {
+            if (combatLogVillagerManager.getCombatLogVillagers().containsKey(villager) && !game.isPvpEnabled()) {
                 event.setCancelled(true);
             }
 
