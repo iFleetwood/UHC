@@ -13,6 +13,7 @@ import cc.kasumi.uhc.scenario.ScenarioManager;
 import cc.kasumi.uhc.util.GameUtil;
 import cc.kasumi.uhc.util.ProgressiveScatterManager;
 import cc.kasumi.uhc.util.TickCounter;
+import cc.kasumi.uhc.world.WorldManager;
 import lombok.Getter;
 import lombok.Setter;
 import org.bukkit.*;
@@ -96,7 +97,131 @@ public class Game {
         new StartTask(this, time).schedule();
     }
 
+    // Add these methods to your existing Game class
+
+    /**
+     * Initialize world for UHC game
+     */
+    public void initializeWorld() {
+        WorldManager worldManager = UHC.getInstance().getWorldManager();
+        World uhcWorld = worldManager.getUhcWorld();
+
+        if (uhcWorld == null) {
+            UHC.getInstance().getLogger().warning("UHC world not found! Creating new one...");
+            worldManager.createNewUHCWorld().thenAccept(world -> {
+                this.worldName = world.getName();
+                initWorldEnvironment(world);
+                buildSetInitialBorder();
+            });
+        } else {
+            this.worldName = uhcWorld.getName();
+            initWorldEnvironment(uhcWorld);
+            buildSetInitialBorder();
+        }
+    }
+
+    /**
+     * Reset world for new game
+     */
+    public void resetWorldForNewGame() {
+        WorldManager worldManager = UHC.getInstance().getWorldManager();
+
+        worldManager.resetUHCWorld().thenRun(() -> {
+            // World has been reset, reinitialize
+            World newWorld = worldManager.getUhcWorld();
+            this.worldName = newWorld.getName();
+            initWorldEnvironment(newWorld);
+
+            // Reset game state
+            this.state = new WaitingGameState(this);
+            this.startCountdownStarted = false;
+            this.pvpEnabled = false;
+            this.currentBorderSize = this.initialBorderSize;
+
+            // Teleport any remaining players to lobby
+            World lobbyWorld = worldManager.getLobbyWorld();
+            if (lobbyWorld != null) {
+                Bukkit.getOnlinePlayers().forEach(player ->
+                        player.teleport(lobbyWorld.getSpawnLocation()));
+            }
+
+            UHC.getInstance().getLogger().info("World reset completed for new game!");
+        });
+    }
+
+    /**
+     * Get the current UHC world
+     */
+    public World getWorld() {
+        return Bukkit.getWorld(worldName);
+    }
+
+    /**
+     * Ensure world is properly loaded before game operations
+     */
+    public boolean isWorldReady() {
+        World world = getWorld();
+        return world != null && !UHC.getInstance().getWorldManager().isWorldGenerationInProgress();
+    }
+
+    /**
+     * Enhanced world environment initialization
+     */
+    private void initWorldEnvironment(World world) {
+        // Basic world rules
+        world.setTime(0);
+        world.setWeatherDuration(0);
+        world.setGameRuleValue("doDaylightCycle", "false");
+        world.setGameRuleValue("doWeatherCycle", "false");
+        world.setGameRuleValue("naturalRegeneration", "false");
+        world.setGameRuleValue("keepInventory", "false");
+        world.setGameRuleValue("mobGriefing", "false");
+        world.setGameRuleValue("doFireTick", "false");
+        world.setGameRuleValue("doMobSpawning", "true");
+        world.setGameRuleValue("doDaylightCycle", "false");
+
+        // Set weather
+        world.setStorm(false);
+        world.setThundering(false);
+
+        // Ensure spawn is at 0,0
+        Location spawn = new Location(world, 0.5, world.getHighestBlockYAt(0, 0) + 1, 0.5);
+        world.setSpawnLocation(spawn.getBlockX(), spawn.getBlockY(), spawn.getBlockZ());
+
+        UHC.getInstance().getLogger().info("World environment initialized for: " + world.getName());
+    }
+
+    /**
+     * Enhanced border setting with world validation
+     */
+    private void setWorldBorder(int borderSize) {
+        if (!isWorldReady()) {
+            UHC.getInstance().getLogger().warning("Cannot set world border: world not ready!");
+            return;
+        }
+
+        World world = getWorld();
+        WorldBorder worldBorder = world.getWorldBorder();
+        worldBorder.setDamageAmount(0);
+        worldBorder.setDamageBuffer(1000);
+        worldBorder.setCenter(0.5, 0.5);
+        worldBorder.setSize(borderSize * 2 - 1.5);
+
+        // Handle combat log villagers
+        combatLogVillagerManager.handleBorderShrink(worldBorder, world);
+
+        UHC.getInstance().getLogger().info("World border set to size: " + borderSize);
+    }
+
+    /**
+     * Enhanced scatter starting with world checks
+     */
     public void startScattering() {
+        if (!isWorldReady()) {
+            UHC.getInstance().getLogger().severe("Cannot start scattering: world not ready!");
+            return;
+        }
+
         setGameState(new ScatteringGameState(this));
         List<UUID> playerList = new ArrayList<>(getScatterPlayerUUIDs());
 
@@ -105,7 +230,15 @@ public class Game {
         scatterManager.startScattering();
     }
 
+    /**
+     * Enhanced game start with world validation
+     */
     public void startGame() {
+        if (!isWorldReady()) {
+            UHC.getInstance().getLogger().severe("Cannot start game: world not ready!");
+            return;
+        }
+
         setGameState(new ActiveGameState(this));
 
         // Set both timers for compatibility
@@ -119,6 +252,49 @@ public class Game {
         new PvPEnableTask(this, getPvpTime()).schedule();
         new BorderShrinkTask(this, getShrinkInitialBorder()).schedule();
         players.forEach((uuid, uhcPlayer) -> uhcPlayer.setPlayerStateAndManage(PlayerState.ALIVE));
+
+        UHC.getInstance().getLogger().info("Game started successfully in world: " + worldName);
+    }
+
+    /**
+     * Get world-specific spawn location
+     */
+    public Location getSpawnLocation() {
+        World world = getWorld();
+        if (world == null) {
+            return null;
+        }
+        return world.getSpawnLocation();
+    }
+
+    /**
+     * Teleport all players to lobby
+     */
+    public void teleportAllPlayersToLobby() {
+        WorldManager worldManager = UHC.getInstance().getWorldManager();
+        World lobbyWorld = worldManager.getLobbyWorld();
+
+        if (lobbyWorld == null) {
+            UHC.getInstance().getLogger().warning("Lobby world not found!");
+            return;
+        }
+
+        Location lobbySpawn = lobbyWorld.getSpawnLocation();
+        World uhcWorld = getWorld();
+
+        if (uhcWorld != null) {
+            uhcWorld.getPlayers().forEach(player -> {
+                player.teleport(lobbySpawn);
+                player.sendMessage(ChatColor.YELLOW + "You have been teleported to the lobby!");
+            });
+        }
+
+        // Also teleport any players in other worlds
+        Bukkit.getOnlinePlayers().forEach(player -> {
+            if (!player.getWorld().equals(lobbyWorld)) {
+                player.teleport(lobbySpawn);
+            }
+        });
     }
 
     public void healAlivePlayers() {
@@ -161,27 +337,6 @@ public class Game {
         }
 
         return alivePlayers;
-    }
-
-    private void initWorldEnvironment(World world) {
-        world.setTime(0);
-        world.setWeatherDuration(0);
-        world.setGameRuleValue("doDaylightCycle", "false");
-        world.setGameRuleValue("doWeatherCycle",  "false");
-        world.setGameRuleValue("naturalRegeneration", "false");
-    }
-
-    private void setWorldBorder(int borderSize) {
-        World world = Bukkit.getWorld(worldName);
-        WorldBorder worldBorder = world.getWorldBorder();
-        worldBorder.setDamageAmount(0);
-        worldBorder.setDamageBuffer(1000);
-        worldBorder.setCenter(0.5, 0.5);
-        worldBorder.setSize(borderSize * 2 - 1.5);
-
-        // Updated call with world parameter TODO Right now players are handled here aswell undo that.
-
-        combatLogVillagerManager.handleBorderShrink(worldBorder, world);
     }
 
     private void buildSetBorder(int borderSize) {

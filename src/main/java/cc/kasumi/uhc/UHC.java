@@ -5,8 +5,7 @@ import cc.kasumi.uhc.game.Game;
 import cc.kasumi.uhc.listener.PlayerListener;
 import cc.kasumi.uhc.util.GameUtil;
 import cc.kasumi.uhc.util.TickCounter;
-import cc.kasumi.uhc.world.generator.BiomeHandler;
-import cc.kasumi.uhc.world.generator.BiomeSwap;
+import cc.kasumi.uhc.world.WorldManager; // Add this import
 import cc.kasumi.uhc.world.listener.WorldPopulatorListener;
 import co.aikar.commands.PaperCommandManager;
 import com.comphenix.protocol.ProtocolLibrary;
@@ -26,7 +25,8 @@ public final class UHC extends JavaPlugin {
 
     private Game game;
     private PaperCommandManager paperCommandManager;
-    private TickCounter tickCounter; // Add this
+    private TickCounter tickCounter;
+    private WorldManager worldManager; // Add this field
 
     @Override
     public void onEnable() {
@@ -34,6 +34,10 @@ public final class UHC extends JavaPlugin {
 
         // Initialize tick counter first
         tickCounter = TickCounter.getInstance();
+
+        // Initialize world manager before game
+        worldManager = new WorldManager(this);
+        worldManager.initializeWorlds();
 
         game = new Game();
 
@@ -75,5 +79,6 @@ public final class UHC extends JavaPlugin {
         paperCommandManager.registerCommand(new TestBorderCommand());
         paperCommandManager.registerCommand(new TickTimeCommand());
         paperCommandManager.registerCommand(new ScenarioCommand());
+        paperCommandManager.registerCommand(new WorldCommand());
     }
 }
