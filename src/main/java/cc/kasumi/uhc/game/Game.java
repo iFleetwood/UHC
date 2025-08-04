@@ -9,6 +9,7 @@ import cc.kasumi.uhc.game.state.WaitingGameState;
 import cc.kasumi.uhc.game.task.*;
 import cc.kasumi.uhc.player.PlayerState;
 import cc.kasumi.uhc.player.UHCPlayer;
+import cc.kasumi.uhc.scenario.ScenarioManager;
 import cc.kasumi.uhc.util.GameUtil;
 import cc.kasumi.uhc.util.ProgressiveScatterManager;
 import cc.kasumi.uhc.util.TickCounter;
@@ -27,6 +28,8 @@ public class Game {
 
     private final Map<UUID, UHCPlayer> players = new HashMap<>();
     private final CombatLogVillagerManager combatLogVillagerManager = new CombatLogVillagerManager(this);
+    private final ScenarioManager scenarioManager = new ScenarioManager(this);
+
 
     private GameState state = new WaitingGameState(this);
 

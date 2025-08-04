@@ -5,6 +5,9 @@ import cc.kasumi.uhc.game.Game;
 import cc.kasumi.uhc.listener.PlayerListener;
 import cc.kasumi.uhc.util.GameUtil;
 import cc.kasumi.uhc.util.TickCounter;
+import cc.kasumi.uhc.world.generator.BiomeHandler;
+import cc.kasumi.uhc.world.generator.BiomeSwap;
+import cc.kasumi.uhc.world.listener.WorldPopulatorListener;
 import co.aikar.commands.PaperCommandManager;
 import com.comphenix.protocol.ProtocolLibrary;
 import com.comphenix.protocol.ProtocolManager;
@@ -56,6 +59,7 @@ public final class UHC extends JavaPlugin {
     private void registerListeners() {
         PluginManager pluginManager = Bukkit.getPluginManager();
         pluginManager.registerEvents(new PlayerListener(game), this);
+        pluginManager.registerEvents(new WorldPopulatorListener(), this);
     }
 
     private void registerManagers() {
@@ -70,5 +74,6 @@ public final class UHC extends JavaPlugin {
         paperCommandManager.registerCommand(new StateCommand());
         paperCommandManager.registerCommand(new TestBorderCommand());
         paperCommandManager.registerCommand(new TickTimeCommand());
+        paperCommandManager.registerCommand(new ScenarioCommand());
     }
 }

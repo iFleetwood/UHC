@@ -8,6 +8,7 @@ import cc.kasumi.uhc.game.Game;
 import cc.kasumi.uhc.game.GameState;
 import cc.kasumi.uhc.player.PlayerState;
 import cc.kasumi.uhc.player.UHCPlayer;
+import cc.kasumi.uhc.scenario.ScenarioManager;
 import cc.kasumi.uhc.util.PlayerUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.*;
@@ -24,6 +25,7 @@ import java.util.UUID;
 public class ActiveGameState extends GameState {
 
     private final CombatLogVillagerManager combatLogVillagerManager = game.getCombatLogVillagerManager();
+    private final ScenarioManager scenarioManager = game.getScenarioManager();
 
     public ActiveGameState(Game game) {
         super(game);
@@ -34,6 +36,8 @@ public class ActiveGameState extends GameState {
         UHC uhc = UHC.getInstance();
 
         Bukkit.getPluginManager().registerEvents(this, uhc);
+
+        scenarioManager.registerAllListeners();
         combatLogVillagerManager.setPositionCheckTask(
                 new CombatVillagerCheckTask(combatLogVillagerManager).runTaskTimer(uhc, 20, 25)
         );
@@ -42,6 +46,8 @@ public class ActiveGameState extends GameState {
     @Override
     public void onDisable() {
         HandlerList.unregisterAll(this);
+        scenarioManager.unregisterAllListeners();
+
         if (combatLogVillagerManager.getPositionCheckTask() != null) {
             combatLogVillagerManager.getPositionCheckTask().cancel();
             combatLogVillagerManager.setPositionCheckTask(null);
