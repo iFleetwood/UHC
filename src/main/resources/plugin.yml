@@ -1,4 +1,4 @@
 name: UHC
 version: '${project.version}'
 main: cc.kasumi.uhc.UHC
-depend: [Commons, ProtocolLib]
+depend: [Commons, ProtocolLib, ViaVersion]

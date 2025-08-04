@@ -21,6 +21,7 @@ public class ScenarioManager {
     public ScenarioManager(Game game) {
         this.game = game;
         registerScenarios();
+        enableDefaultScenarios();
     }
 
     private void registerScenarios() {
@@ -32,6 +33,17 @@ public class ScenarioManager {
 
     private void addScenario(Scenario scenario) {
         scenarios.put(scenario.getName().toLowerCase(), scenario);
+    }
+
+    /**
+     * Enable scenarios that should be active by default
+     */
+    private void enableDefaultScenarios() {
+        // Enable CutClean by default
+        enableScenario("CutClean");
+
+        // Add other default scenarios here if needed
+        // enableScenario("NoFall");
     }
 
     public void enableScenario(String scenarioName) {

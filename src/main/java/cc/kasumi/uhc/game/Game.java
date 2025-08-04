@@ -11,6 +11,9 @@ import cc.kasumi.uhc.game.task.*;
 import cc.kasumi.uhc.player.PlayerState;
 import cc.kasumi.uhc.player.UHCPlayer;
 import cc.kasumi.uhc.scenario.ScenarioManager;
+import cc.kasumi.uhc.team.TeamManager;
+import cc.kasumi.uhc.team.TeamScatterManager;
+import cc.kasumi.uhc.team.UHCTeam;
 import cc.kasumi.uhc.util.GameUtil;
 import cc.kasumi.uhc.util.ProgressiveScatterManager;
 import cc.kasumi.uhc.util.TickCounter;
@@ -31,6 +34,7 @@ public class Game {
     private final Map<UUID, UHCPlayer> players = new HashMap<>();
     private final CombatLogVillagerManager combatLogVillagerManager = new CombatLogVillagerManager(this);
     private final ScenarioManager scenarioManager = new ScenarioManager(this);
+    private final TeamManager teamManager = new TeamManager(this);
     private BarAPI barAPI;
 
     private GameState state = new WaitingGameState(this);
@@ -54,6 +58,7 @@ public class Game {
 
     private boolean pvpEnabled = false;
     private boolean startCountdownStarted = false;
+    private boolean teamMode = false; // NEW: Whether teams are enabled
 
     private TickCounter tickCounter = TickCounter.getInstance();
 
@@ -227,6 +232,11 @@ public class Game {
         this.startTimeTicks = 0;
         this.startTimeMillis = 0;
 
+        // Clear teams if in team mode
+        if (teamMode) {
+            teamManager.clearAllTeams();
+        }
+
         // Clear any existing tasks
         Bukkit.getScheduler().cancelTasks(UHC.getInstance());
 
@@ -315,7 +325,7 @@ public class Game {
     }
 
     /**
-     * Enhanced scattering with world validation and proper error handling
+     * Enhanced scattering with team support and proper error handling
      */
     public void startScattering() {
         if (!isWorldReady()) {
@@ -332,6 +342,51 @@ public class Game {
         }
 
         setGameState(new ScatteringGameState(this));
+
+        // Check if we should use team scattering
+        if (teamMode && !teamManager.getAllTeams().isEmpty()) {
+            startTeamScattering();
+        } else {
+            startIndividualScattering();
+        }
+    }
+
+    /**
+     * Start team-based scattering
+     */
+    private void startTeamScattering() {
+        Collection<UHCTeam> teams = teamManager.getAllTeams();
+
+        if (teams.isEmpty()) {
+            UHC.getInstance().getLogger().warning("Team mode enabled but no teams found! Switching to individual scatter.");
+            startIndividualScattering();
+            return;
+        }
+
+        int teamsWithPlayers = 0;
+        for (UHCTeam team : teams) {
+            if (!team.getOnlineMembers().isEmpty()) {
+                teamsWithPlayers++;
+            }
+        }
+
+        if (teamsWithPlayers == 0) {
+            UHC.getInstance().getLogger().warning("No teams with online players! Starting game immediately.");
+            startGame();
+            return;
+        }
+
+        Bukkit.broadcastMessage(ChatColor.GREEN + "Starting team scatter for " + teamsWithPlayers +
+                " teams in world: " + worldName);
+
+        TeamScatterManager teamScatterManager = new TeamScatterManager(this, initialBorderSize);
+        teamScatterManager.startScattering();
+    }
+
+    /**
+     * Start individual player scattering
+     */
+    private void startIndividualScattering() {
         List<UUID> playerList = new ArrayList<>(getScatterPlayerUUIDs());
 
         if (playerList.isEmpty()) {
@@ -341,9 +396,11 @@ public class Game {
             return;
         }
 
-        Bukkit.broadcastMessage(ChatColor.GREEN + "Starting scatter for " + playerList.size() + " players in world: " + world.getName());
+        World world = getWorld();
+        Bukkit.broadcastMessage(ChatColor.GREEN + "Starting individual scatter for " + playerList.size() +
+                " players in world: " + world.getName());
 
-        // Create the progressive scatter manager with enhanced error handling
+        // Create the progressive scatter manager
         ProgressiveScatterManager scatterManager = new ProgressiveScatterManager(this, playerList, initialBorderSize);
         scatterManager.startScattering();
     }
@@ -384,7 +441,15 @@ public class Game {
         // Set all players to alive state
         players.forEach((uuid, uhcPlayer) -> uhcPlayer.setPlayerStateAndManage(PlayerState.ALIVE));
 
-        Bukkit.broadcastMessage(ChatColor.GREEN + "Game started successfully in world: " + world.getName());
+        // Announce game start with team info if applicable
+        if (teamMode) {
+            int aliveTeams = teamManager.getAliveTeams().size();
+            Bukkit.broadcastMessage(ChatColor.GREEN + "Game started successfully with " + aliveTeams +
+                    " teams in world: " + world.getName());
+        } else {
+            Bukkit.broadcastMessage(ChatColor.GREEN + "Game started successfully in world: " + world.getName());
+        }
+
         UHC.getInstance().getLogger().info("Game started successfully in world: " + worldName);
     }
 
@@ -522,7 +587,14 @@ public class Game {
         World world = getWorld();
         if (world != null) {
             GameUtil.shrinkBorder(borderSize, world);
-            Bukkit.broadcastMessage(ChatColor.GOLD + "Border built with size: " + borderSize);
+
+            if (teamMode) {
+                int aliveTeams = teamManager.getAliveTeams().size();
+                Bukkit.broadcastMessage(ChatColor.GOLD + "Border built with size: " + borderSize +
+                        " (" + aliveTeams + " teams remaining)");
+            } else {
+                Bukkit.broadcastMessage(ChatColor.GOLD + "Border built with size: " + borderSize);
+            }
         }
     }
 
@@ -531,7 +603,7 @@ public class Game {
     }
 
     /**
-     * Enhanced border shrinking with world validation and notifications
+     * Enhanced border shrinking with world validation and team notifications
      */
     public void shrinkBorder() {
         if (!isWorldReady()) {
@@ -544,12 +616,19 @@ public class Game {
 
         buildSetBorder(currentBorderSize);
 
-        // Enhanced border shrink notification
+        // Enhanced border shrink notification with team info
         World world = getWorld();
         if (world != null) {
             int playersInWorld = world.getPlayers().size();
+            String teamInfo = "";
+
+            if (teamMode) {
+                int aliveTeams = teamManager.getAliveTeams().size();
+                teamInfo = ", Teams: " + aliveTeams;
+            }
+
             Bukkit.broadcastMessage(ChatColor.YELLOW + "Border shrunk from " + oldSize + " to " + currentBorderSize +
-                    ChatColor.GRAY + " (World: " + world.getName() + ", Players: " + playersInWorld + ")");
+                    ChatColor.GRAY + " (World: " + world.getName() + ", Players: " + playersInWorld + teamInfo + ")");
         }
     }
 
@@ -653,6 +732,11 @@ public class Game {
 
     public void removePlayer(UUID uuid) {
         players.remove(uuid);
+
+        // Remove from team if in team mode
+        if (teamMode) {
+            teamManager.removePlayerFromTeam(uuid);
+        }
     }
 
     public UHCPlayer getUHCPlayer(UUID uuid) {
@@ -661,5 +745,28 @@ public class Game {
 
     public boolean containsUHCPlayer(UUID uuid) {
         return players.containsKey(uuid);
+    }
+
+    /**
+     * Enable or disable team mode
+     */
+    public void setTeamMode(boolean teamMode) {
+        this.teamMode = teamMode;
+
+        if (teamMode) {
+            Bukkit.broadcastMessage(ChatColor.GREEN + "Team mode enabled!");
+            UHC.getInstance().getLogger().info("Team mode enabled");
+        } else {
+            Bukkit.broadcastMessage(ChatColor.YELLOW + "Team mode disabled!");
+            teamManager.clearAllTeams();
+            UHC.getInstance().getLogger().info("Team mode disabled, all teams cleared");
+        }
+    }
+
+    /**
+     * Check if teams are enabled
+     */
+    public boolean isTeamMode() {
+        return teamMode;
     }
 }

@@ -249,6 +249,8 @@ public final class UHC extends JavaPlugin {
             paperCommandManager.registerCommand(new ScenarioCommand());
             paperCommandManager.registerCommand(new WorldCommand());
             paperCommandManager.registerCommand(new WorldConfigCommand());
+            paperCommandManager.registerCommand(new TeamCommand()); // NEW: Register team command
+            paperCommandManager.registerCommand(new TeamModeCommand()); // NEW: Register team mode command
             getLogger().info("Commands registered successfully");
         } catch (Exception e) {
             getLogger().severe("Error registering commands: " + e.getMessage());
