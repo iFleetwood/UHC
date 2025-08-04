@@ -92,20 +92,51 @@ public class GameUtil {
             return false;
         }
 
-        // Ensure feet and headspace are clear (air or passable blocks)
-        if (feetMaterial != Material.AIR &&
-                feetMaterial != Material.LONG_GRASS &&
-                feetMaterial != Material.YELLOW_FLOWER &&
-                feetMaterial != Material.RED_ROSE) {
+        // Check for unsafe ground materials
+        if (groundMaterial == Material.SAND && world.getBlockAt(x, y - 2, z).getType() == Material.AIR) {
+            return false; // Avoid floating sand
+        }
+
+        // Ensure feet space is clear (air or passable blocks)
+        if (!isPassableMaterial(feetMaterial)) {
             return false;
         }
 
-        if (headMaterial != Material.AIR &&
-                headMaterial != Material.LONG_GRASS) {
+        // Ensure headspace is clear (air or small passable blocks)
+        if (!isHeadPassableMaterial(headMaterial)) {
             return false;
         }
 
         return true;
+    }
+
+    /**
+     * Check if a material is passable for feet level
+     */
+    private static boolean isPassableMaterial(Material material) {
+        return material == Material.AIR ||
+                material == Material.LONG_GRASS ||
+                material == Material.YELLOW_FLOWER ||
+                material == Material.RED_ROSE ||
+                material == Material.BROWN_MUSHROOM ||
+                material == Material.RED_MUSHROOM ||
+                material == Material.DEAD_BUSH ||
+                material == Material.SAPLING ||
+                material == Material.SNOW ||
+                material == Material.WHEAT ||  // crops
+                material == Material.CARROT ||
+                material == Material.POTATO;
+    }
+
+    /**
+     * Check if a material is passable for head level (more restrictive)
+     */
+    private static boolean isHeadPassableMaterial(Material material) {
+        return material == Material.AIR ||
+                material == Material.LONG_GRASS ||
+                material == Material.YELLOW_FLOWER ||
+                material == Material.RED_ROSE ||
+                material == Material.SNOW;
     }
 
     /**

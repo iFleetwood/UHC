@@ -2,10 +2,7 @@ package cc.kasumi.uhc.util;
 
 import cc.kasumi.uhc.UHC;
 import cc.kasumi.uhc.game.Game;
-import org.bukkit.Bukkit;
-import org.bukkit.Chunk;
-import org.bukkit.Location;
-import org.bukkit.World;
+import org.bukkit.*;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
@@ -174,32 +171,76 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         cancel();
     }
 
+    /**
+     * Updated method for ProgressiveScatterManager
+     */
     private Location findValidScatterLocation(Random random) {
         for (int attempt = 0; attempt < MAX_ATTEMPTS_PER_LOCATION; attempt++) {
-            int x = random.nextInt(radius * 2) - radius;
-            int z = random.nextInt(radius * 2) - radius;
+            // Generate coordinates within the radius
+            double angle = random.nextDouble() * 2 * Math.PI;
+            double distance = random.nextDouble() * radius;
+
+            int x = (int) (distance * Math.cos(angle));
+            int z = (int) (distance * Math.sin(angle));
 
             Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
-            candidate.setY(world.getHighestBlockYAt(candidate) + 1);
 
-            // Check if location is far enough from other players
+            // Get proper ground level
+            int groundY = world.getHighestBlockYAt(candidate);
+
+            // Avoid spawning in trees or other structures
+            for (int checkY = groundY; checkY < groundY + 10; checkY++) {
+                Material mat = world.getBlockAt(x, checkY, z).getType();
+                if (mat == Material.LEAVES || mat == Material.LEAVES_2 || mat == Material.LOG || mat == Material.LOG_2) {
+                    groundY = checkY + 1;
+                }
+            }
+
+            candidate.setY(groundY + 1);
+
+            // Check if location is valid
             if (isLocationValid(candidate)) {
                 return candidate;
             }
         }
 
-        return null; // Couldn't find valid location
+        // Fallback: try to find any safe location within radius
+        for (int attempt = 0; attempt < 20; attempt++) {
+            int x = random.nextInt(radius * 2) - radius;
+            int z = random.nextInt(radius * 2) - radius;
+
+            Location fallback = new Location(world, x + 0.5, world.getHighestBlockYAt(x, z) + 1, z + 0.5);
+
+            if (GameUtil.isLocationSafe(fallback)) {
+                return fallback;
+            }
+        }
+
+        return null; // Still couldn't find valid location
     }
 
+    /**
+     * More lenient location validation
+     */
     private boolean isLocationValid(Location candidate) {
-        // Check distance from other scatter locations
+        // First check if location is safe
+        if (!GameUtil.isLocationSafe(candidate)) {
+            return false;
+        }
+
+        // Check distance from other scatter locations (be more lenient if we have many players)
+        int minDistance = MIN_DISTANCE_BETWEEN_PLAYERS;
+        if (playersToScatter.size() > 50) {
+            minDistance = Math.max(50, MIN_DISTANCE_BETWEEN_PLAYERS / 2); // Reduce min distance for large games
+        }
+
         for (Location existing : scatterLocations.values()) {
-            if (candidate.distance(existing) < MIN_DISTANCE_BETWEEN_PLAYERS) {
+            if (candidate.distance(existing) < minDistance) {
                 return false;
             }
         }
 
-        return GameUtil.isLocationSafe(candidate);
+        return true;
     }
 
     public void startScattering() {
