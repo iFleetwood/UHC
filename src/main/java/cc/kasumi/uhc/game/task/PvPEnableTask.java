@@ -4,6 +4,8 @@ import cc.kasumi.uhc.game.state.ActiveGameState;
 import cc.kasumi.uhc.game.Game;
 import org.bukkit.Bukkit;
 
+import static cc.kasumi.uhc.UHCConfiguration.*;
+
 public class PvPEnableTask extends CountDownTask {
 
     public PvPEnableTask(Game game, int timeBefore) {
@@ -17,17 +19,17 @@ public class PvPEnableTask extends CountDownTask {
 
     @Override
     public void getMinutesLeftAction() {
-        Bukkit.broadcastMessage("PvP is getting enabled in " + timeBefore / 60 + " minute(s)");
+        Bukkit.broadcastMessage(MAIN_COLOR + "PvP is getting enabled in " + SEC_COLOR + timeBefore / 60 + MAIN_COLOR + " minute(s)");
     }
 
     @Override
     public void getSecondsLeftAction() {
-        Bukkit.broadcastMessage("PvP is getting enabled in " + timeBefore + " second(s)");
+        Bukkit.broadcastMessage(MAIN_COLOR + "PvP is getting enabled in " + SEC_COLOR + timeBefore + MAIN_COLOR + " second(s)");
     }
 
     @Override
     public void getFinalAction() {
         game.setPvpEnabled(true);
-        Bukkit.broadcastMessage("PvP has been enabled!");
+        Bukkit.broadcastMessage(MAIN_COLOR + "PvP has been enabled!");
     }
 }

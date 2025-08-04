@@ -1,6 +1,7 @@
 package cc.kasumi.uhc.game;
 
 import cc.kasumi.uhc.UHC;
+import cc.kasumi.uhc.barapi.BarAPI;
 import cc.kasumi.uhc.combatlog.CombatLogPlayer;
 import cc.kasumi.uhc.combatlog.CombatLogVillagerManager;
 import cc.kasumi.uhc.game.state.ActiveGameState;
@@ -30,10 +31,9 @@ public class Game {
     private final Map<UUID, UHCPlayer> players = new HashMap<>();
     private final CombatLogVillagerManager combatLogVillagerManager = new CombatLogVillagerManager(this);
     private final ScenarioManager scenarioManager = new ScenarioManager(this);
-
+    private BarAPI barAPI;
 
     private GameState state = new WaitingGameState(this);
-
 
     private int maxPlayers = 100;
     private int pvpTime = 30;
@@ -53,17 +53,77 @@ public class Game {
     private long gameStartTick;   // NEW: When the game actually started
 
     private boolean pvpEnabled = false;
-
-    private String worldName = "world";
-
     private boolean startCountdownStarted = false;
 
     private TickCounter tickCounter = TickCounter.getInstance();
 
+    // World Management Integration
+    private WorldManager worldManager;
+    private String worldName = "uhc"; // Default, will be updated by WorldManager
+
     public Game() {
+        this.worldManager = UHC.getInstance().getWorldManager();
+
+        // Initialize world system
+        initializeWorldSystem();
+
         this.state.onEnable();
-        setWorldBorder(initialBorderSize);
-        initWorldEnvironment(Bukkit.getWorld(worldName));
+    }
+
+    /**
+     * Initialize the world system for UHC
+     */
+    private void initializeWorldSystem() {
+        // Get the configured UHC world name
+        this.worldName = worldManager.getUHCWorldName();
+
+        // Ensure UHC world exists and is ready
+        if (!isWorldReady()) {
+            UHC.getInstance().getLogger().info("UHC world not ready, will initialize when available");
+            // Schedule a check for when world becomes available
+            scheduleWorldReadyCheck();
+        } else {
+            setupInitialGameWorld();
+        }
+    }
+
+    /**
+     * Schedule periodic checks for world readiness
+     */
+    private void scheduleWorldReadyCheck() {
+        new BukkitRunnable() {
+            private int attempts = 0;
+            private final int maxAttempts = 60; // 30 seconds maximum wait
+
+            @Override
+            public void run() {
+                attempts++;
+
+                if (isWorldReady()) {
+                    setupInitialGameWorld();
+                    cancel();
+                    UHC.getInstance().getLogger().info("UHC world became ready after " + attempts + " attempts");
+                } else if (attempts >= maxAttempts) {
+                    UHC.getInstance().getLogger().severe("UHC world failed to become ready after " + maxAttempts + " attempts!");
+                    cancel();
+                } else if (attempts % 10 == 0) {
+                    UHC.getInstance().getLogger().info("Still waiting for UHC world... (attempt " + attempts + "/" + maxAttempts + ")");
+                }
+            }
+        }.runTaskTimer(UHC.getInstance(), 10L, 10L); // Check every 0.5 seconds
+    }
+
+    /**
+     * Setup initial game world configuration
+     */
+    private void setupInitialGameWorld() {
+        World uhcWorld = getWorld();
+        if (uhcWorld != null) {
+            this.worldName = uhcWorld.getName();
+            setWorldBorder(initialBorderSize);
+            initWorldEnvironment(uhcWorld);
+            UHC.getInstance().getLogger().info("Game initialized with world: " + worldName);
+        }
     }
 
     public void setGameState(GameState newState) {
@@ -93,83 +153,120 @@ public class Game {
     }
 
     public void gameStartRunnable(int time) {
+        if (!isWorldReady()) {
+            Bukkit.broadcastMessage(ChatColor.RED + "Cannot start game: World is not ready!");
+            UHC.getInstance().getLogger().warning("Attempted to start game but world is not ready");
+            return;
+        }
+
         this.startCountdownStarted = true;
         new StartTask(this, time).schedule();
     }
 
-    // Add these methods to your existing Game class
-
     /**
-     * Initialize world for UHC game
+     * Enhanced world initialization with WorldManager integration
      */
     public void initializeWorld() {
-        WorldManager worldManager = UHC.getInstance().getWorldManager();
-        World uhcWorld = worldManager.getUhcWorld();
-
-        if (uhcWorld == null) {
+        if (worldManager.getUhcWorld() == null) {
             UHC.getInstance().getLogger().warning("UHC world not found! Creating new one...");
             worldManager.createNewUHCWorld().thenAccept(world -> {
                 this.worldName = world.getName();
                 initWorldEnvironment(world);
                 buildSetInitialBorder();
+                UHC.getInstance().getLogger().info("New UHC world created and initialized: " + worldName);
+            }).exceptionally(throwable -> {
+                UHC.getInstance().getLogger().severe("Failed to create UHC world: " + throwable.getMessage());
+                return null;
             });
         } else {
+            World uhcWorld = worldManager.getUhcWorld();
             this.worldName = uhcWorld.getName();
             initWorldEnvironment(uhcWorld);
             buildSetInitialBorder();
+            UHC.getInstance().getLogger().info("Existing UHC world initialized: " + worldName);
         }
     }
 
     /**
-     * Reset world for new game
+     * Reset world for new game with WorldManager integration
      */
     public void resetWorldForNewGame() {
-        WorldManager worldManager = UHC.getInstance().getWorldManager();
+        UHC.getInstance().getLogger().info("Resetting world for new game...");
+
+        // Teleport all players to lobby first
+        teleportAllPlayersToLobby();
 
         worldManager.resetUHCWorld().thenRun(() -> {
-            // World has been reset, reinitialize
+            // World has been reset, reinitialize game
             World newWorld = worldManager.getUhcWorld();
             this.worldName = newWorld.getName();
             initWorldEnvironment(newWorld);
 
             // Reset game state
-            this.state = new WaitingGameState(this);
-            this.startCountdownStarted = false;
-            this.pvpEnabled = false;
-            this.currentBorderSize = this.initialBorderSize;
-
-            // Teleport any remaining players to lobby
-            World lobbyWorld = worldManager.getLobbyWorld();
-            if (lobbyWorld != null) {
-                Bukkit.getOnlinePlayers().forEach(player ->
-                        player.teleport(lobbyWorld.getSpawnLocation()));
-            }
+            resetGameState();
 
             UHC.getInstance().getLogger().info("World reset completed for new game!");
+        }).exceptionally(throwable -> {
+            UHC.getInstance().getLogger().severe("Failed to reset world: " + throwable.getMessage());
+            return null;
         });
     }
 
     /**
-     * Get the current UHC world
+     * Reset game state after world reset
      */
-    public World getWorld() {
-        return Bukkit.getWorld(worldName);
+    private void resetGameState() {
+        this.state.onDisable();
+        this.state = new WaitingGameState(this);
+        this.state.onEnable();
+
+        this.startCountdownStarted = false;
+        this.pvpEnabled = false;
+        this.currentBorderSize = this.initialBorderSize;
+        this.gameStartTick = 0;
+        this.startTimeTicks = 0;
+        this.startTimeMillis = 0;
+
+        // Clear any existing tasks
+        Bukkit.getScheduler().cancelTasks(UHC.getInstance());
+
+        // Reset border
+        buildSetInitialBorder();
     }
 
     /**
-     * Ensure world is properly loaded before game operations
+     * Get the current UHC world with proper error handling
+     */
+    public World getWorld() {
+        World world = worldManager.getUhcWorld();
+        if (world == null) {
+            UHC.getInstance().getLogger().warning("UHC world is null, attempting fallback to Bukkit world");
+            world = Bukkit.getWorld(worldName);
+        }
+        return world;
+    }
+
+    /**
+     * Enhanced world readiness check
      */
     public boolean isWorldReady() {
         World world = getWorld();
-        return world != null && !UHC.getInstance().getWorldManager().isWorldGenerationInProgress();
+        return world != null &&
+                !worldManager.isWorldGenerationInProgress() &&
+                world.getSpawnLocation() != null;
     }
 
     /**
      * Enhanced world environment initialization
      */
     private void initWorldEnvironment(World world) {
+        if (world == null) {
+            UHC.getInstance().getLogger().severe("Cannot initialize null world environment!");
+            return;
+        }
+
         // Basic world rules
-        world.setTime(0);
+        world.setTime(6000); // Noon
         world.setWeatherDuration(0);
         world.setGameRuleValue("doDaylightCycle", "false");
         world.setGameRuleValue("doWeatherCycle", "false");
@@ -178,7 +275,6 @@ public class Game {
         world.setGameRuleValue("mobGriefing", "false");
         world.setGameRuleValue("doFireTick", "false");
         world.setGameRuleValue("doMobSpawning", "true");
-        world.setGameRuleValue("doDaylightCycle", "false");
 
         // Set weather
         world.setStorm(false);
@@ -192,7 +288,7 @@ public class Game {
     }
 
     /**
-     * Enhanced border setting with world validation
+     * Enhanced border setting with world validation and combat log handling
      */
     private void setWorldBorder(int borderSize) {
         if (!isWorldReady()) {
@@ -201,44 +297,76 @@ public class Game {
         }
 
         World world = getWorld();
+        if (world == null) {
+            UHC.getInstance().getLogger().severe("Cannot set world border: world is null!");
+            return;
+        }
+
         WorldBorder worldBorder = world.getWorldBorder();
         worldBorder.setDamageAmount(0);
         worldBorder.setDamageBuffer(1000);
         worldBorder.setCenter(0.5, 0.5);
         worldBorder.setSize(borderSize * 2 - 1.5);
 
-        // Handle combat log villagers
+        // Handle combat log villagers during border changes
         combatLogVillagerManager.handleBorderShrink(worldBorder, world);
 
-        UHC.getInstance().getLogger().info("World border set to size: " + borderSize);
+        UHC.getInstance().getLogger().info("World border set to size: " + borderSize + " in world: " + world.getName());
     }
 
     /**
-     * Enhanced scatter starting with world checks
+     * Enhanced scattering with world validation and proper error handling
      */
     public void startScattering() {
         if (!isWorldReady()) {
             UHC.getInstance().getLogger().severe("Cannot start scattering: world not ready!");
+            Bukkit.broadcastMessage(ChatColor.RED + "Cannot start scattering: World not ready!");
+            return;
+        }
+
+        World world = getWorld();
+        if (world == null) {
+            UHC.getInstance().getLogger().severe("Cannot start scattering: world is null!");
+            Bukkit.broadcastMessage(ChatColor.RED + "Cannot start scattering: World error!");
             return;
         }
 
         setGameState(new ScatteringGameState(this));
         List<UUID> playerList = new ArrayList<>(getScatterPlayerUUIDs());
 
-        // Create the progressive scatter manager
+        if (playerList.isEmpty()) {
+            UHC.getInstance().getLogger().warning("No players to scatter!");
+            Bukkit.broadcastMessage(ChatColor.YELLOW + "No players to scatter! Starting game immediately.");
+            startGame();
+            return;
+        }
+
+        Bukkit.broadcastMessage(ChatColor.GREEN + "Starting scatter for " + playerList.size() + " players in world: " + world.getName());
+
+        // Create the progressive scatter manager with enhanced error handling
         ProgressiveScatterManager scatterManager = new ProgressiveScatterManager(this, playerList, initialBorderSize);
         scatterManager.startScattering();
     }
 
     /**
-     * Enhanced game start with world validation
+     * Enhanced game start with comprehensive world validation
      */
     public void startGame() {
         if (!isWorldReady()) {
             UHC.getInstance().getLogger().severe("Cannot start game: world not ready!");
+            Bukkit.broadcastMessage(ChatColor.RED + "Cannot start game: World not ready!");
             return;
         }
 
+        World world = getWorld();
+        if (world == null) {
+            UHC.getInstance().getLogger().severe("Cannot start game: world is null!");
+            Bukkit.broadcastMessage(ChatColor.RED + "Cannot start game: World error!");
+            return;
+        }
+
+        barAPI = new BarAPI();
+        barAPI.onEnable();
         setGameState(new ActiveGameState(this));
 
         // Set both timers for compatibility
@@ -248,60 +376,93 @@ public class Game {
 
         buildSetInitialBorder();
 
+        // Schedule game tasks
         new FinalHealTask(this, getHealTime()).schedule();
         new PvPEnableTask(this, getPvpTime()).schedule();
         new BorderShrinkTask(this, getShrinkInitialBorder()).schedule();
+
+        // Set all players to alive state
         players.forEach((uuid, uhcPlayer) -> uhcPlayer.setPlayerStateAndManage(PlayerState.ALIVE));
 
+        Bukkit.broadcastMessage(ChatColor.GREEN + "Game started successfully in world: " + world.getName());
         UHC.getInstance().getLogger().info("Game started successfully in world: " + worldName);
     }
 
     /**
-     * Get world-specific spawn location
+     * Get world-specific spawn location with validation
      */
     public Location getSpawnLocation() {
         World world = getWorld();
         if (world == null) {
+            UHC.getInstance().getLogger().warning("Cannot get spawn location: world is null!");
             return null;
         }
         return world.getSpawnLocation();
     }
 
     /**
-     * Teleport all players to lobby
+     * Enhanced teleport all players to lobby with proper error handling
      */
     public void teleportAllPlayersToLobby() {
-        WorldManager worldManager = UHC.getInstance().getWorldManager();
         World lobbyWorld = worldManager.getLobbyWorld();
 
         if (lobbyWorld == null) {
-            UHC.getInstance().getLogger().warning("Lobby world not found!");
+            UHC.getInstance().getLogger().warning("Lobby world not found! Cannot teleport players.");
             return;
         }
 
         Location lobbySpawn = lobbyWorld.getSpawnLocation();
         World uhcWorld = getWorld();
 
+        int playersTeleported = 0;
+
+        // Teleport players from UHC world
         if (uhcWorld != null) {
-            uhcWorld.getPlayers().forEach(player -> {
+            for (Player player : uhcWorld.getPlayers()) {
                 player.teleport(lobbySpawn);
                 player.sendMessage(ChatColor.YELLOW + "You have been teleported to the lobby!");
-            });
+                playersTeleported++;
+            }
         }
 
-        // Also teleport any players in other worlds
-        Bukkit.getOnlinePlayers().forEach(player -> {
+        // Also teleport any players in other worlds (except lobby)
+        for (Player player : Bukkit.getOnlinePlayers()) {
             if (!player.getWorld().equals(lobbyWorld)) {
                 player.teleport(lobbySpawn);
+                playersTeleported++;
             }
-        });
+        }
+
+        UHC.getInstance().getLogger().info("Teleported " + playersTeleported + " players to lobby");
+
+        if (playersTeleported > 0) {
+            Bukkit.broadcastMessage(ChatColor.GREEN + "All players have been teleported to the lobby!");
+        }
     }
 
+    /**
+     * Enhanced heal alive players with world validation
+     */
     public void healAlivePlayers() {
+        World world = getWorld();
+        if (world == null) {
+            UHC.getInstance().getLogger().warning("Cannot heal players: world is null!");
+            return;
+        }
+
+        int playersHealed = 0;
         for (UHCPlayer uhcPlayer : getOnlineAlivePlayers()) {
             Player player = uhcPlayer.getPlayer();
+            if (player != null && player.isOnline() && player.getWorld().equals(world)) {
+                player.setHealth(20.0D);
+                player.sendMessage(ChatColor.GREEN + "You have been healed!");
+                playersHealed++;
+            }
+        }
 
-            player.setHealth(20.0D);
+        if (playersHealed > 0) {
+            Bukkit.broadcastMessage(ChatColor.GREEN + "Final heal given to " + playersHealed + " players!");
+            UHC.getInstance().getLogger().info("Healed " + playersHealed + " alive players");
         }
     }
 
@@ -309,7 +470,11 @@ public class Game {
         Set<UUID> uuids = new HashSet<>();
 
         for (UHCPlayer scatterPlayers : getAlivePlayers()) {
-            uuids.add(scatterPlayers.getUuid());
+            // Ensure player is actually online and in the correct world
+            Player player = scatterPlayers.getPlayer();
+            if (player != null && player.isOnline()) {
+                uuids.add(scatterPlayers.getUuid());
+            }
         }
 
         return uuids;
@@ -321,7 +486,10 @@ public class Game {
         for (UHCPlayer uhcPlayer : players.values()) {
             if (uhcPlayer.getState() != PlayerState.ALIVE) continue;
 
-            alivePlayers.add(uhcPlayer);
+            Player player = uhcPlayer.getPlayer();
+            if (player != null && player.isOnline()) {
+                alivePlayers.add(uhcPlayer);
+            }
         }
 
         return alivePlayers;
@@ -339,19 +507,50 @@ public class Game {
         return alivePlayers;
     }
 
+    /**
+     * Enhanced border building with world validation
+     */
     private void buildSetBorder(int borderSize) {
+        if (!isWorldReady()) {
+            UHC.getInstance().getLogger().warning("Cannot build border: world not ready!");
+            return;
+        }
+
         setCurrentBorderSize(borderSize);
         setWorldBorder(borderSize);
-        GameUtil.shrinkBorder(borderSize, Bukkit.getWorld(worldName));
+
+        World world = getWorld();
+        if (world != null) {
+            GameUtil.shrinkBorder(borderSize, world);
+            Bukkit.broadcastMessage(ChatColor.GOLD + "Border built with size: " + borderSize);
+        }
     }
 
     public void buildSetInitialBorder() {
         buildSetBorder(initialBorderSize);
     }
 
+    /**
+     * Enhanced border shrinking with world validation and notifications
+     */
     public void shrinkBorder() {
+        if (!isWorldReady()) {
+            UHC.getInstance().getLogger().warning("Cannot shrink border: world not ready!");
+            return;
+        }
+
+        int oldSize = this.currentBorderSize;
         this.currentBorderSize = getNextBorder();
+
         buildSetBorder(currentBorderSize);
+
+        // Enhanced border shrink notification
+        World world = getWorld();
+        if (world != null) {
+            int playersInWorld = world.getPlayers().size();
+            Bukkit.broadcastMessage(ChatColor.YELLOW + "Border shrunk from " + oldSize + " to " + currentBorderSize +
+                    ChatColor.GRAY + " (World: " + world.getName() + ", Players: " + playersInWorld + ")");
+        }
     }
 
     public int getNextBorder() {
@@ -373,7 +572,6 @@ public class Game {
      * Gets current server tick count (20 ticks per second)
      */
     public long getCurrentServerTick() {
-        // Bukkit doesn't have a direct API for this, so we'll track it ourselves
         return tickCounter.getCurrentTick();
     }
 
@@ -407,6 +605,46 @@ public class Game {
         long minutes = totalSeconds / 60;
         long seconds = totalSeconds % 60;
         return String.format("%02d:%02d", minutes, seconds);
+    }
+
+    /**
+     * Get world name for this game
+     */
+    public String getWorldName() {
+        return worldName;
+    }
+
+    /**
+     * Check if the game is running in the correct world
+     */
+    public boolean isInGameWorld(Player player) {
+        if (player == null) return false;
+        World gameWorld = getWorld();
+        return gameWorld != null && player.getWorld().equals(gameWorld);
+    }
+
+    /**
+     * Get players currently in the game world
+     */
+    public List<Player> getPlayersInGameWorld() {
+        World gameWorld = getWorld();
+        if (gameWorld == null) {
+            return new ArrayList<>();
+        }
+        return new ArrayList<>(gameWorld.getPlayers());
+    }
+
+    /**
+     * Force reload world reference (useful after world reset)
+     */
+    public void refreshWorldReference() {
+        World newWorld = worldManager.getUhcWorld();
+        if (newWorld != null) {
+            this.worldName = newWorld.getName();
+            UHC.getInstance().getLogger().info("Refreshed world reference to: " + worldName);
+        } else {
+            UHC.getInstance().getLogger().warning("Failed to refresh world reference - world is null!");
+        }
     }
 
     public void putUHCPlayer(UUID uuid, UHCPlayer uhcPlayer) {

@@ -3,6 +3,8 @@ package cc.kasumi.uhc.game.task;
 import cc.kasumi.uhc.game.Game;
 import org.bukkit.Bukkit;
 
+import static cc.kasumi.uhc.UHCConfiguration.*;
+
 public class StartTask extends CountDownTask {
 
     public StartTask(Game game, int timeBefore) {
@@ -16,17 +18,17 @@ public class StartTask extends CountDownTask {
 
     @Override
     public void getMinutesLeftAction() {
-        Bukkit.broadcastMessage("Scattering in: " + timeBefore / 60 + " minute(s)");
+        Bukkit.broadcastMessage(MAIN_COLOR + "Scattering in: " + SEC_COLOR + timeBefore / 60 + MAIN_COLOR + " minute(s)");
     }
 
     @Override
     public void getSecondsLeftAction() {
-        Bukkit.broadcastMessage("Scattering in: " + timeBefore + " second(s)");
+        Bukkit.broadcastMessage(MAIN_COLOR + "Scattering in: " + SEC_COLOR + timeBefore + MAIN_COLOR + " second(s)");
     }
 
     @Override
     public void getFinalAction() {
         game.startScattering();
-        Bukkit.broadcastMessage("Starting scattering!");
+        Bukkit.broadcastMessage(MAIN_COLOR + "Starting scattering!");
     }
 }

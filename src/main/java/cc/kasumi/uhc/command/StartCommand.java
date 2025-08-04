@@ -7,29 +7,100 @@ import co.aikar.commands.annotation.CommandAlias;
 import co.aikar.commands.annotation.CommandPermission;
 import co.aikar.commands.annotation.Default;
 import co.aikar.commands.annotation.Optional;
+import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
 
 @CommandAlias("start")
 @CommandPermission("uhc.host")
 public class StartCommand extends BaseCommand {
 
-
     @Default
-    public void onStartCommand(CommandSender sender, @Optional Integer i) {
+    public void onStartCommand(CommandSender sender, @Optional Integer seconds) {
         Game game = UHC.getInstance().getGame();
 
+        if (game == null) {
+            sender.sendMessage(ChatColor.RED + "Game instance is not available!");
+            return;
+        }
+
+        // Check if game has already been started
         if (game.isStartCountdownStarted()) {
-            sender.sendMessage("Game has already been started!");
-
+            sender.sendMessage(ChatColor.RED + "Game countdown has already been started!");
             return;
         }
 
-        if (i == null) {
-            game.gameStartRunnable(5);
+        // Check if world is ready
+        if (!game.isWorldReady()) {
+            sender.sendMessage(ChatColor.RED + "Cannot start game: World is not ready!");
+            sender.sendMessage(ChatColor.YELLOW + "Please wait for world generation to complete or use /world create");
 
+            // If sender is a player, give them world status
+            if (sender instanceof Player) {
+                UHC uhc = UHC.getInstance();
+                if (uhc.getWorldManager() != null) {
+                    boolean generating = uhc.getWorldManager().isWorldGenerationInProgress();
+                    sender.sendMessage(ChatColor.GRAY + "World generation in progress: " + generating);
+
+                    if (uhc.getWorldManager().getUhcWorld() == null) {
+                        sender.sendMessage(ChatColor.GRAY + "UHC world: Not loaded");
+                    } else {
+                        sender.sendMessage(ChatColor.GRAY + "UHC world: " + uhc.getWorldManager().getUhcWorld().getName());
+                    }
+                }
+            }
             return;
         }
 
-        game.gameStartRunnable(i);
+        // Check if there are players to scatter
+        if (game.getScatterPlayerUUIDs().isEmpty()) {
+            sender.sendMessage(ChatColor.YELLOW + "Warning: No players available to scatter!");
+            sender.sendMessage(ChatColor.YELLOW + "Make sure players are online and in the correct world.");
+        }
+
+        // Validate world has spawn location
+        if (game.getSpawnLocation() == null) {
+            sender.sendMessage(ChatColor.RED + "Cannot start game: World spawn location is invalid!");
+            return;
+        }
+
+        // Default countdown time
+        int countdownTime = (seconds != null) ? seconds : 5;
+
+        // Validate countdown time
+        if (countdownTime < 0) {
+            sender.sendMessage(ChatColor.RED + "Countdown time cannot be negative!");
+            return;
+        }
+
+        if (countdownTime > 300) { // 5 minutes max
+            sender.sendMessage(ChatColor.RED + "Countdown time cannot exceed 300 seconds!");
+            return;
+        }
+
+        // Start the countdown
+        try {
+            game.gameStartRunnable(countdownTime);
+
+            String timeText = countdownTime == 0 ? "immediately" : "in " + countdownTime + " seconds";
+            sender.sendMessage(ChatColor.GREEN + "Game countdown started! Scattering will begin " + timeText);
+
+            // Log the start
+            UHC.getInstance().getLogger().info("Game countdown started by " + sender.getName() +
+                    " with " + countdownTime + " seconds delay");
+
+            // Give additional info to the starter
+            if (sender instanceof Player) {
+                Player player = (Player) sender;
+                player.sendMessage(ChatColor.GRAY + "World: " + game.getWorldName());
+                player.sendMessage(ChatColor.GRAY + "Players to scatter: " + game.getScatterPlayerUUIDs().size());
+                player.sendMessage(ChatColor.GRAY + "Border size: " + game.getInitialBorderSize());
+            }
+
+        } catch (Exception e) {
+            sender.sendMessage(ChatColor.RED + "Failed to start game countdown: " + e.getMessage());
+            UHC.getInstance().getLogger().severe("Error starting game countdown: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 }

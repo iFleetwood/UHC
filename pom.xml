@@ -51,8 +51,8 @@
 
   <repositories>
       <repository>
-          <id>spigotmc-repo</id>
-          <url>https://hub.spigotmc.org/nexus/content/repositories/snapshots/</url>
+          <id>hpfxd-repo</id>
+          <url>https://repo.hpfxd.com/releases/</url>
       </repository>
 
       <repository>
@@ -68,8 +68,8 @@
 
   <dependencies>
       <dependency>
-          <groupId>org.spigotmc</groupId>
-          <artifactId>spigot-api</artifactId>
+          <groupId>com.hpfxd.pandaspigot</groupId>
+          <artifactId>pandaspigot-api</artifactId>
           <version>1.8.8-R0.1-SNAPSHOT</version>
           <scope>provided</scope>
       </dependency>

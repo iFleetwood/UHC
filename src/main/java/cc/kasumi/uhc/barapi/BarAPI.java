@@ -1,12 +1,12 @@
 package cc.kasumi.uhc.barapi;
 
+import cc.kasumi.uhc.UHC;
 import cc.kasumi.uhc.barapi.nms.FakeDragon;
 import cc.kasumi.uhc.barapi.nms.v1_8Fake;
 import cc.kasumi.uhc.util.ReflectionUtil;
 import lombok.Getter;
 import org.apache.commons.lang.Validate;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Player;
@@ -14,7 +14,6 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.*;
-import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.HashMap;
@@ -27,14 +26,14 @@ import java.util.UUID;
  * @author James Mortemore
  */
 
-public class BarAPI extends JavaPlugin implements Listener {
+public class BarAPI implements Listener {
 
   @Getter private static List<Player> players1_8;
 
-  private static HashMap<UUID, FakeDragon> players = new HashMap<UUID, FakeDragon>();
-  private static HashMap<UUID, Integer> timers = new HashMap<UUID, Integer>();
+  private static HashMap<UUID, FakeDragon> players = new HashMap<>();
+  private static HashMap<UUID, Integer> timers = new HashMap<>();
 
-  private static BarAPI plugin;
+  private static UHC plugin;
 
   private static boolean useSpigotHack = false;
 
@@ -385,49 +384,35 @@ public class BarAPI extends JavaPlugin implements Listener {
   }
 
   public void onEnable() {
-    getConfig().options().copyDefaults(true);
-    saveConfig();
+    plugin = UHC.getInstance();
 
-    plugin = this;
+    plugin.getConfig().options().copyDefaults(true);
+    plugin.saveConfig();
 
-    useSpigotHack = getConfig().getBoolean("useSpigotHack", false);
+    useSpigotHack = plugin.getConfig().getBoolean("useSpigotHack", false);
 
     if (!useSpigotHack) {
       if (v1_8Fake.isUsable()) {
         useSpigotHack = true;
         ReflectionUtil.detectVersion();
-        getLogger().info("Detected spigot hack, enabling fake 1.8");
+        plugin.getLogger().info("Detected spigot hack, enabling fake 1.8");
       }
     }
 
-    getServer().getPluginManager().registerEvents(this, this);
+    Bukkit.getPluginManager().registerEvents(this, plugin);
 
-    getLogger().info("Loaded");
+    plugin.getLogger().info("Loaded");
 
     if (useSpigotHack) {
-      getServer().getScheduler().scheduleSyncRepeatingTask(this, new Runnable() {
-
+      new BukkitRunnable() {
+        @Override
         public void run() {
           for (UUID uuid : players.keySet()) {
             Player p = Bukkit.getPlayer(uuid);
             ReflectionUtil.sendPacket(p, players.get(uuid).getTeleportPacket(getDragonLocation(p.getLocation())));
           }
         }
-      }, 0L, 5L);
-    }
-
-    // TestMode
-    if (getConfig().getBoolean("testMode")) {
-      plugin.getServer().getScheduler().runTaskTimer(plugin, new Runnable() {
-
-        @Override
-        public void run() {
-          for (Player player : plugin.getServer().getOnlinePlayers()) {
-            BarAPI.setMessage(player, ChatColor.AQUA + "Testing BarAPI Testing BarAPI Testing BarAPI Testing BarAPI Testing BarAPI Testing BarAPI Testing BarAPI", 10);
-          }
-        }
-
-      }, 30L, 300L);
+      }.runTaskTimer(plugin, 5L, 5L);
     }
   }
 
@@ -448,6 +433,7 @@ public class BarAPI extends JavaPlugin implements Listener {
   @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
   public void onPlayerQuit(PlayerQuitEvent event) {
     quit(event.getPlayer());
+    Bukkit.broadcastMessage("is fired");
   }
 
   @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

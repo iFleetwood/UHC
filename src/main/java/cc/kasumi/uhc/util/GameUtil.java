@@ -1,7 +1,9 @@
 package cc.kasumi.uhc.util;
 
+import cc.kasumi.uhc.UHC;
 import cc.kasumi.uhc.combatlog.CombatLogVillagerManager;
 import cc.kasumi.uhc.game.Game;
+import cc.kasumi.uhc.world.WorldManager;
 import lombok.NonNull;
 import org.bukkit.*;
 import org.bukkit.entity.Entity;
@@ -15,13 +17,31 @@ public class GameUtil {
     // Track active wall builders to prevent multiple builders for same area
     private static final Map<String, ProgressiveWallBuilder> activeBuilders = new HashMap<>();
 
-    // Add these methods to your existing GameUtil class:
+    /**
+     * Get scatter location with world manager integration
+     */
+    public static Location getScatterLocation(int radius, Game game) {
+        World world = game.getWorld();
+        if (world == null) {
+            UHC.getInstance().getLogger().severe("Cannot get scatter location: world is null!");
+            return null;
+        }
 
-    public static Location getScatterLocation(int radius, String worldName) {
-        World world = Bukkit.getWorld(worldName);
+        return getScatterLocation(radius, world);
+    }
+
+    /**
+     * Get scatter location with specific world
+     */
+    public static Location getScatterLocation(int radius, World world) {
+        if (world == null) {
+            UHC.getInstance().getLogger().severe("Cannot get scatter location: world parameter is null!");
+            return null;
+        }
+
         Random random = new Random();
 
-        for (int attempt = 0; attempt < 10; attempt++) {
+        for (int attempt = 0; attempt < 15; attempt++) { // Increased attempts for better locations
             int x = random.nextInt(radius * 2) - radius;
             int z = random.nextInt(radius * 2) - radius;
 
@@ -29,44 +49,67 @@ public class GameUtil {
             int groundY = world.getHighestBlockYAt(location);
             location.setY(groundY + 1);
 
-            // Basic safety checks
-            if (isLocationSafe(location)) {
+            // Enhanced safety checks
+            if (isLocationSafe(location) && !isLocationNearWorldBorder(location, world)) {
                 return location;
             }
         }
 
-        // Fallback to center if no safe location found
-        return new Location(world, 0.5, world.getHighestBlockYAt(0, 0) + 1, 0.5);
+        // Enhanced fallback with world center validation
+        Location fallback = new Location(world, 0.5, world.getHighestBlockYAt(0, 0) + 1, 0.5);
+        if (isLocationSafe(fallback)) {
+            return fallback;
+        }
+
+        // Last resort - find any safe location
+        return findAnySafeLocation(world, 100);
     }
 
     /**
-     * Check if a location is safe for player teleportation
+     * Find any safe location within a radius
      */
-    /*
+    private static Location findAnySafeLocation(World world, int searchRadius) {
+        Random random = new Random();
+
+        for (int attempt = 0; attempt < 50; attempt++) {
+            int x = random.nextInt(searchRadius * 2) - searchRadius;
+            int z = random.nextInt(searchRadius * 2) - searchRadius;
+
+            Location candidate = new Location(world, x + 0.5, world.getHighestBlockYAt(x, z) + 1, z + 0.5);
+
+            if (isLocationSafe(candidate)) {
+                cc.kasumi.uhc.UHC.getInstance().getLogger().info("Found safe fallback location at: " +
+                        x + ", " + candidate.getBlockY() + ", " + z);
+                return candidate;
+            }
+        }
+
+        // Absolute fallback
+        UHC.getInstance().getLogger().warning("Could not find safe location, using world spawn");
+        return world.getSpawnLocation();
+    }
+
+    /**
+     * Check if location is near world border
+     */
+    private static boolean isLocationNearWorldBorder(Location location, World world) {
+        WorldBorder border = world.getWorldBorder();
+        Location center = border.getCenter();
+        double size = border.getSize();
+        double radius = size / 2;
+
+        double distance = location.distance(center);
+        return distance > (radius - 50); // Stay 50 blocks away from border
+    }
+
+    /**
+     * Enhanced location safety check
+     */
     public static boolean isLocationSafe(Location location) {
-        World world = location.getWorld();
-        int x = location.getBlockX();
-        int y = location.getBlockY();
-        int z = location.getBlockZ();
-
-        // Check for lava or water at feet level
-        Material groundMaterial = world.getBlockAt(x, y - 1, z).getType();
-        Material feetMaterial = world.getBlockAt(x, y, z).getType();
-        Material headMaterial = world.getBlockAt(x, y + 1, z).getType();
-
-        // Avoid lava, water, and ensure airspace
-        if (groundMaterial == Material.LAVA || groundMaterial == Material.STATIONARY_LAVA ||
-                groundMaterial == Material.WATER || groundMaterial == Material.STATIONARY_WATER ||
-                feetMaterial != Material.AIR || headMaterial != Material.AIR) {
+        if (location == null || location.getWorld() == null) {
             return false;
         }
 
-        return true;
-    }
-
-     */
-
-    public static boolean isLocationSafe(Location location) {
         World world = location.getWorld();
         int x = location.getBlockX();
         int y = location.getBlockY();
@@ -107,7 +150,29 @@ public class GameUtil {
             return false;
         }
 
+        // Additional check for dangerous nearby blocks
+        if (hasDangerousNearbyBlocks(world, x, y, z)) {
+            return false;
+        }
+
         return true;
+    }
+
+    /**
+     * Check for dangerous blocks nearby
+     */
+    private static boolean hasDangerousNearbyBlocks(World world, int x, int y, int z) {
+        // Check 3x3 area around the location
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                Material nearby = world.getBlockAt(x + dx, y, z + dz).getType();
+                if (nearby == Material.LAVA || nearby == Material.STATIONARY_LAVA ||
+                        nearby == Material.FIRE || nearby == Material.CACTUS) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -140,20 +205,36 @@ public class GameUtil {
     }
 
     /**
-     * Progressive scatter with chunk preloading (replaces old scatterPlayer method)
+     * Progressive scatter with game integration
      */
     public static ProgressiveScatterManager startProgressiveScatter(Game game, List<UUID> playerUUIDs, int radius) {
+        if (!game.isWorldReady()) {
+            UHC.getInstance().getLogger().severe("Cannot start scatter: world not ready!");
+            return null;
+        }
+
         ProgressiveScatterManager manager = new ProgressiveScatterManager(game, playerUUIDs, radius);
         manager.startScattering();
         return manager;
     }
 
     /**
-     * Calculate safe border point without immediate teleportation
+     * Calculate safe border point with enhanced world validation
      */
     public static Location calculateSafeBorderPoint(Entity entity, WorldBorder border) {
+        if (entity == null || border == null) {
+            cc.kasumi.uhc.UHC.getInstance().getLogger().warning("Cannot calculate border point: null entity or border");
+            return null;
+        }
+
         Location playerLoc = entity.getLocation();
         Location center = border.getCenter();
+
+        if (playerLoc.getWorld() != center.getWorld()) {
+            UHC.getInstance().getLogger().warning("Entity and border are in different worlds!");
+            return null;
+        }
+
         double size = border.getSize();
         double radius = size / 2;
 
@@ -165,60 +246,122 @@ public class GameUtil {
         double distToTopBottom = Math.min(Math.abs(deltaZ + radius), Math.abs(deltaZ - radius));
 
         double newX, newZ;
+        double buffer = 5.0; // Increased buffer for safety
 
         if (distToLeftRight < distToTopBottom) {
-            // Teleport to left or right edge (3 blocks inward)
+            // Teleport to left or right edge
             if (deltaX > 0) {
-                newX = center.getX() + radius - 3; // Right edge, move 3 blocks left
+                newX = center.getX() + radius - buffer; // Right edge
             } else {
-                newX = center.getX() - radius + 3; // Left edge, move 3 blocks right
+                newX = center.getX() - radius + buffer; // Left edge
             }
-            newZ = Math.max(center.getZ() - radius + 3, Math.min(center.getZ() + radius - 3, playerLoc.getZ()));
+            newZ = Math.max(center.getZ() - radius + buffer,
+                    Math.min(center.getZ() + radius - buffer, playerLoc.getZ()));
         } else {
-            // Teleport to top or bottom edge (3 blocks inward)
+            // Teleport to top or bottom edge
             if (deltaZ > 0) {
-                newZ = center.getZ() + radius - 3; // Bottom edge, move 3 blocks up
+                newZ = center.getZ() + radius - buffer; // Bottom edge
             } else {
-                newZ = center.getZ() - radius + 3; // Top edge, move 3 blocks down
+                newZ = center.getZ() - radius + buffer; // Top edge
             }
-            newX = Math.max(center.getX() - radius + 3, Math.min(center.getX() + radius - 3, playerLoc.getX()));
+            newX = Math.max(center.getX() - radius + buffer,
+                    Math.min(center.getX() + radius - buffer, playerLoc.getX()));
         }
 
-        // Set safe Y coordinate
-        Location teleportLoc = new Location(playerLoc.getWorld(), newX, playerLoc.getY(), newZ);
-        teleportLoc.setY(playerLoc.getWorld().getHighestBlockYAt(teleportLoc) + 1);
+        // Set safe Y coordinate with enhanced ground detection
+        World world = playerLoc.getWorld();
+        Location teleportLoc = new Location(world, newX, playerLoc.getY(), newZ);
+
+        // Find the highest safe block
+        int groundY = world.getHighestBlockYAt(teleportLoc);
+
+        // Ensure we're not in a tree or structure
+        for (int checkY = groundY; checkY < groundY + 10 && checkY < 255; checkY++) {
+            Material mat = world.getBlockAt((int)newX, checkY, (int)newZ).getType();
+            if (mat == Material.LEAVES || mat == Material.LEAVES_2 ||
+                    mat == Material.LOG || mat == Material.LOG_2) {
+                groundY = checkY + 1;
+            }
+        }
+
+        teleportLoc.setY(Math.min(groundY + 1, 254));
+
+        // Validate the calculated location
+        if (!isLocationSafe(teleportLoc)) {
+            // Try to find a nearby safe location
+            Location safeLoc = findNearestSafeLocation(teleportLoc, 10);
+            if (safeLoc != null) {
+                teleportLoc = safeLoc;
+            } else {
+                cc.kasumi.uhc.UHC.getInstance().getLogger().warning("Could not find safe border teleport location!");
+            }
+        }
 
         return teleportLoc;
     }
 
     /**
-     * Start progressive border teleportation
+     * Find nearest safe location within radius
+     */
+    private static Location findNearestSafeLocation(Location center, int radius) {
+        World world = center.getWorld();
+        int centerX = center.getBlockX();
+        int centerZ = center.getBlockZ();
+
+        for (int r = 1; r <= radius; r++) {
+            for (int x = centerX - r; x <= centerX + r; x++) {
+                for (int z = centerZ - r; z <= centerZ + r; z++) {
+                    // Only check the perimeter of the current radius
+                    if (Math.abs(x - centerX) == r || Math.abs(z - centerZ) == r) {
+                        Location candidate = new Location(world, x + 0.5,
+                                world.getHighestBlockYAt(x, z) + 1, z + 0.5);
+
+                        if (isLocationSafe(candidate)) {
+                            return candidate;
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Start progressive border teleportation with world validation
      */
     public static ProgressiveBorderTeleporter startProgressiveBorderTeleport(WorldBorder worldBorder, World world, CombatLogVillagerManager villagerManager) {
+        if (world == null) {
+            UHC.getInstance().getLogger().severe("Cannot start border teleport: world is null!");
+            return null;
+        }
+
+        if (worldBorder == null) {
+            UHC.getInstance().getLogger().severe("Cannot start border teleport: worldBorder is null!");
+            return null;
+        }
+
         ProgressiveBorderTeleporter teleporter = new ProgressiveBorderTeleporter(worldBorder, world, villagerManager);
         teleporter.startTeleporting();
         return teleporter;
     }
 
-    public static void revivePlayer(Player player) {
-
-    }
-
     /**
-     * Builds walls progressively to prevent server lag
-     * @param radius The radius of the border
-     * @param height The height of the walls
-     * @param world The world to build in
-     * @return ProgressiveWallBuilder instance for tracking progress
+     * Build walls with world validation and enhanced error handling
      */
     public static ProgressiveWallBuilder buildWallsProgressive(int radius, int height, World world) {
+        if (world == null) {
+            UHC.getInstance().getLogger().severe("Cannot build walls: world is null!");
+            return null;
+        }
+
         String key = world.getName() + "_" + radius;
 
         // Cancel any existing builder for this area
         ProgressiveWallBuilder existingBuilder = activeBuilders.get(key);
         if (existingBuilder != null && !existingBuilder.isCancelled()) {
             existingBuilder.cancel();
-            Bukkit.getLogger().info("Cancelled previous wall builder for radius " + radius);
+            UHC.getInstance().getLogger().info("Cancelled previous wall builder for radius " + radius);
         }
 
         // Create and start new builder
@@ -228,22 +371,26 @@ public class GameUtil {
         // Start building
         builder.startBuilding();
 
+        UHC.getInstance().getLogger().info("Started building walls with radius " + radius + " in world: " + world.getName());
+
         return builder;
     }
 
     /**
-     * Legacy method - now uses progressive building
-     */
-    @Deprecated
-    public static void buildWalls(int radius, int height, World world) {
-        buildWallsProgressive(radius, height, world);
-    }
-
-    /**
-     * Build walls with progress callback
+     * Enhanced border shrinking with world validation
      */
     public static void shrinkBorder(int size, World world) {
+        if (world == null) {
+            UHC.getInstance().getLogger().severe("Cannot shrink border: world is null!");
+            return;
+        }
+
         ProgressiveWallBuilder builder = buildWallsProgressive(size, 5, world);
+
+        if (builder == null) {
+            UHC.getInstance().getLogger().severe("Failed to create wall builder for border shrink!");
+            return;
+        }
 
         // Optional: Add progress logging every few seconds
         new BukkitRunnable() {
@@ -259,13 +406,17 @@ public class GameUtil {
                     long ticksRemaining = builder.getEstimatedTicksRemaining();
                     long secondsRemaining = ticksRemaining / 20;
 
-                    Bukkit.getLogger().info(String.format("Wall building progress: %.1f%% (%d seconds remaining)",
-                            progress, secondsRemaining));
+                    if (secondsRemaining > 10) { // Only log for longer builds
+                        UHC.getInstance().getLogger().info(String.format(
+                                "Wall building progress in %s: %.1f%% (%d seconds remaining)",
+                                world.getName(), progress, secondsRemaining));
+                    }
                 } else {
+                    UHC.getInstance().getLogger().info("Wall building completed in world: " + world.getName());
                     cancel();
                 }
             }
-        }.runTaskTimer(cc.kasumi.uhc.UHC.getInstance(), 60, 60); // Every 3 seconds
+        }.runTaskTimer(UHC.getInstance(), 60, 60); // Every 3 seconds
     }
 
     /**
@@ -278,16 +429,25 @@ public class GameUtil {
             }
         }
         activeBuilders.clear();
-        Bukkit.getLogger().info("Cancelled all active wall builders");
+        cc.kasumi.uhc.UHC.getInstance().getLogger().info("Cancelled all active wall builders");
     }
 
+    /**
+     * Enhanced entity in border check with world validation
+     */
     public static boolean isEntityInBorder(@NonNull Entity entity, WorldBorder border) {
+        if (entity == null || border == null) {
+            return true; // Assume safe if we can't check
+        }
+
         Location entityLocation = entity.getLocation();
         Location center = border.getCenter();
 
         if (entityLocation.getWorld() != center.getWorld()) {
-            return true;
+            UHC.getInstance().getLogger().warning("Entity and border in different worlds!");
+            return true; // Assume safe if different worlds
         }
+
         double size = border.getSize();
         double radius = size / 2;
 
@@ -297,49 +457,74 @@ public class GameUtil {
         return deltaX <= radius && deltaZ <= radius;
     }
 
+    /**
+     * Enhanced teleport to border with better error handling and validation
+     */
     public static Location teleportToNearestBorderPoint(@NonNull Entity entity, WorldBorder border) {
-        Location playerLoc = entity.getLocation();
-        Location center = border.getCenter();
-        double size = border.getSize();
-        double radius = size / 2;
-
-        double deltaX = playerLoc.getX() - center.getX();
-        double deltaZ = playerLoc.getZ() - center.getZ();
-
-        // Find which border edge is closest
-        double distToLeftRight = Math.min(Math.abs(deltaX + radius), Math.abs(deltaX - radius));
-        double distToTopBottom = Math.min(Math.abs(deltaZ + radius), Math.abs(deltaZ - radius));
-
-        double newX, newZ;
-
-        if (distToLeftRight < distToTopBottom) {
-            // Teleport to left or right edge (3 blocks inward)
-            if (deltaX > 0) {
-                newX = center.getX() + radius - 3; // Right edge, move 3 blocks left
-            } else {
-                newX = center.getX() - radius + 3; // Left edge, move 3 blocks right
-            }
-            newZ = Math.max(center.getZ() - radius + 3, Math.min(center.getZ() + radius - 3, playerLoc.getZ()));
-        } else {
-            // Teleport to top or bottom edge (3 blocks inward)
-            if (deltaZ > 0) {
-                newZ = center.getZ() + radius - 3; // Bottom edge, move 3 blocks up
-            } else {
-                newZ = center.getZ() - radius + 3; // Top edge, move 3 blocks down
-            }
-            newX = Math.max(center.getX() - radius + 3, Math.min(center.getX() + radius - 3, playerLoc.getX()));
+        if (entity == null || border == null) {
+            UHC.getInstance().getLogger().warning("Cannot teleport: entity or border is null");
+            return null;
         }
 
-        // Set safe Y coordinate
-        Location teleportLoc = new Location(playerLoc.getWorld(), newX, playerLoc.getY(), newZ);
-        teleportLoc.setY(playerLoc.getWorld().getHighestBlockYAt(teleportLoc) + 1);
-
-        entity.teleport(teleportLoc);
-
-        if (entity instanceof Player) {
-            entity.sendMessage(ChatColor.RED + "You were teleported due to border shrinking!");
+        Location calculated = calculateSafeBorderPoint(entity, border);
+        if (calculated == null) {
+            UHC.getInstance().getLogger().warning("Failed to calculate safe border point for entity: " + entity.getType());
+            return null;
         }
 
-        return teleportLoc;
+        // Perform the teleportation
+        try {
+            boolean teleported = entity.teleport(calculated);
+
+            if (!teleported) {
+                UHC.getInstance().getLogger().warning("Failed to teleport entity to border point!");
+                return null;
+            }
+
+            if (entity instanceof Player) {
+                Player player = (Player) entity;
+                player.sendMessage(ChatColor.RED + "You were teleported due to border shrinking!");
+                UHC.getInstance().getLogger().info("Teleported player " + player.getName() + " to border");
+            } else {
+                UHC.getInstance().getLogger().info("Teleported " + entity.getType() + " to border");
+            }
+
+            return calculated;
+
+        } catch (Exception e) {
+            UHC.getInstance().getLogger().severe("Error during border teleportation: " + e.getMessage());
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /**
+     * Get active wall builders for monitoring
+     */
+    public static Map<String, ProgressiveWallBuilder> getActiveBuilders() {
+        return new HashMap<>(activeBuilders);
+    }
+
+    /**
+     * Check if any wall builders are currently active
+     */
+    public static boolean hasActiveBuilders() {
+        return activeBuilders.values().stream().anyMatch(builder -> !builder.isCancelled());
+    }
+
+    /**
+     * Get wall building progress for a specific world
+     */
+    public static double getWallBuildingProgress(World world, int radius) {
+        if (world == null) return 100.0;
+
+        String key = world.getName() + "_" + radius;
+        ProgressiveWallBuilder builder = activeBuilders.get(key);
+
+        if (builder == null || builder.isCancelled()) {
+            return 100.0;
+        }
+
+        return builder.getProgress();
     }
 }

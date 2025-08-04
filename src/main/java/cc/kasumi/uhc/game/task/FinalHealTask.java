@@ -4,6 +4,8 @@ import cc.kasumi.uhc.game.state.ActiveGameState;
 import cc.kasumi.uhc.game.Game;
 import org.bukkit.Bukkit;
 
+import static cc.kasumi.uhc.UHCConfiguration.*;
+
 public class FinalHealTask extends CountDownTask {
 
     public FinalHealTask(Game game, int timeBefore) {
@@ -17,17 +19,17 @@ public class FinalHealTask extends CountDownTask {
 
     @Override
     public void getMinutesLeftAction() {
-        Bukkit.broadcastMessage("Final heal in: " + timeBefore / 60 + " minute(s)");
+        Bukkit.broadcastMessage(MAIN_COLOR + "Final heal in: " + SEC_COLOR + timeBefore / 60 + MAIN_COLOR + " minute(s)");
     }
 
     @Override
     public void getSecondsLeftAction() {
-        Bukkit.broadcastMessage("Final heal in: " + timeBefore + " second(s)");
+        Bukkit.broadcastMessage(MAIN_COLOR + "Final heal in: " + SEC_COLOR + timeBefore + MAIN_COLOR + " second(s)");
     }
 
     @Override
     public void getFinalAction() {
         game.healAlivePlayers();
-        Bukkit.broadcastMessage("Final heal has been given!");
+        Bukkit.broadcastMessage(MAIN_COLOR + "Final heal has been given!");
     }
 }
