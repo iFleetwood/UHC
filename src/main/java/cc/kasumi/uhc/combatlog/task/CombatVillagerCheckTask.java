@@ -4,11 +4,12 @@ import cc.kasumi.uhc.combatlog.CombatLogPlayer;
 import cc.kasumi.uhc.combatlog.CombatLogVillagerManager;
 import org.bukkit.Location;
 import org.bukkit.entity.Villager;
+import org.bukkit.event.Listener;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.Map;
 
-public class CombatVillagerCheckTask extends BukkitRunnable {
+public class CombatVillagerCheckTask extends BukkitRunnable implements Listener {
 
     private final CombatLogVillagerManager combatLogVillagerManager;
 
@@ -24,11 +25,11 @@ public class CombatVillagerCheckTask extends BukkitRunnable {
             Location villagerLocation = villager.getLocation();
             Location combatLogPlayerLocation = combatLogPlayer.getLocation();
 
-            if (villagerLocation.equals(combatLogPlayerLocation)) {
-                continue;
+            if (!villagerLocation.equals(combatLogPlayerLocation)) {
+                villager.teleport(combatLogPlayerLocation);
             }
-
-            villager.teleport(combatLogPlayerLocation);
         }
     }
+
+
 }

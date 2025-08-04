@@ -6,6 +6,7 @@ import lombok.NonNull;
 import org.bukkit.*;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.*;
 
@@ -41,7 +42,8 @@ public class GameUtil {
     /**
      * Check if a location is safe for player teleportation
      */
-    private static boolean isLocationSafe(Location location) {
+    /*
+    public static boolean isLocationSafe(Location location) {
         World world = location.getWorld();
         int x = location.getBlockX();
         int y = location.getBlockY();
@@ -52,10 +54,54 @@ public class GameUtil {
         Material feetMaterial = world.getBlockAt(x, y, z).getType();
         Material headMaterial = world.getBlockAt(x, y + 1, z).getType();
 
-        // Avoid lava, water, and ensure air space
+        // Avoid lava, water, and ensure airspace
         if (groundMaterial == Material.LAVA || groundMaterial == Material.STATIONARY_LAVA ||
                 groundMaterial == Material.WATER || groundMaterial == Material.STATIONARY_WATER ||
                 feetMaterial != Material.AIR || headMaterial != Material.AIR) {
+            return false;
+        }
+
+        return true;
+    }
+
+     */
+
+    public static boolean isLocationSafe(Location location) {
+        World world = location.getWorld();
+        int x = location.getBlockX();
+        int y = location.getBlockY();
+        int z = location.getBlockZ();
+
+        // Check if location is within world bounds
+        if (y < 1 || y > 255) {
+            return false;
+        }
+
+        Material groundMaterial = world.getBlockAt(x, y - 1, z).getType();
+        Material feetMaterial = world.getBlockAt(x, y, z).getType();
+        Material headMaterial = world.getBlockAt(x, y + 1, z).getType();
+
+        // Ensure there's solid ground (not air, lava, water, or other unsafe blocks)
+        if (groundMaterial == Material.AIR ||
+                groundMaterial == Material.LAVA ||
+                groundMaterial == Material.STATIONARY_LAVA ||
+                groundMaterial == Material.WATER ||
+                groundMaterial == Material.STATIONARY_WATER ||
+                groundMaterial == Material.FIRE ||
+                groundMaterial == Material.CACTUS) {
+            return false;
+        }
+
+        // Ensure feet and headspace are clear (air or passable blocks)
+        if (feetMaterial != Material.AIR &&
+                feetMaterial != Material.LONG_GRASS &&
+                feetMaterial != Material.YELLOW_FLOWER &&
+                feetMaterial != Material.RED_ROSE) {
+            return false;
+        }
+
+        if (headMaterial != Material.AIR &&
+                headMaterial != Material.LONG_GRASS) {
             return false;
         }
 
@@ -169,7 +215,7 @@ public class GameUtil {
         ProgressiveWallBuilder builder = buildWallsProgressive(size, 5, world);
 
         // Optional: Add progress logging every few seconds
-        new org.bukkit.scheduler.BukkitRunnable() {
+        new BukkitRunnable() {
             @Override
             public void run() {
                 if (builder.isCancelled()) {
@@ -211,7 +257,6 @@ public class GameUtil {
         if (entityLocation.getWorld() != center.getWorld()) {
             return true;
         }
-
         double size = border.getSize();
         double radius = size / 2;
 

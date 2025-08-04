@@ -12,11 +12,9 @@ import cc.kasumi.uhc.util.PlayerUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.HandlerList;
-import org.bukkit.event.entity.EntityDamageByEntityEvent;
-import org.bukkit.event.entity.EntityDeathEvent;
-import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
-import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.entity.*;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.world.ChunkUnloadEvent;
@@ -37,7 +35,7 @@ public class ActiveGameState extends GameState {
 
         Bukkit.getPluginManager().registerEvents(this, uhc);
         combatLogVillagerManager.setPositionCheckTask(
-                new CombatVillagerCheckTask(combatLogVillagerManager).runTaskTimer(uhc, 20, 10)
+                new CombatVillagerCheckTask(combatLogVillagerManager).runTaskTimer(uhc, 20, 25)
         );
     }
 
@@ -137,21 +135,29 @@ public class ActiveGameState extends GameState {
         }
     }
 
-    @EventHandler
-    public void onEntityTarget(EntityTargetLivingEntityEvent event) {
-        LivingEntity target = event.getTarget();
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onEntityDamageEvent(EntityDamageEvent event) {
+        if (event.isCancelled()) return;
 
-        if (!(target instanceof Villager villager) || !combatLogVillagerManager.isControlledVillager(villager)) {
-            return;
+        Entity entity = event.getEntity();
+
+        if (entity instanceof Villager villager && combatLogVillagerManager.isControlledVillager(villager)) {
+            CombatLogPlayer combatLogPlayer = combatLogVillagerManager.getCombatLogPlayer(villager);
+
+            double newHealth = villager.getHealth() - event.getFinalDamage();
+            newHealth = Math.max(0, newHealth); // Clamp to prevent negatives
+
+            combatLogVillagerManager.updateVillagerHealthBar(villager, combatLogPlayer, newHealth);
         }
-
-        event.setCancelled(true);
     }
 
     @EventHandler
     public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
+        if (event.isCancelled()) return;
+
         Entity entity = event.getEntity();
         Entity damager = event.getDamager();
+
 
         if (!(entity instanceof Player)) {
             if (!(entity instanceof Villager)) {

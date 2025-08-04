@@ -10,12 +10,14 @@ import cc.kasumi.uhc.game.task.*;
 import cc.kasumi.uhc.player.PlayerState;
 import cc.kasumi.uhc.player.UHCPlayer;
 import cc.kasumi.uhc.util.GameUtil;
+import cc.kasumi.uhc.util.ProgressiveScatterManager;
 import cc.kasumi.uhc.util.TickCounter;
 import lombok.Getter;
 import lombok.Setter;
 import org.bukkit.*;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Villager;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.*;
 
@@ -30,7 +32,7 @@ public class Game {
 
 
     private int maxPlayers = 100;
-    private int pvpTime = 20 * 60;
+    private int pvpTime = 30;
     private int healTime = 10 * 60;
     private int starterFood = 10;
 
@@ -49,7 +51,6 @@ public class Game {
     private boolean pvpEnabled = false;
 
     private String worldName = "world";
-
 
     private boolean startCountdownStarted = false;
 
@@ -94,7 +95,11 @@ public class Game {
 
     public void startScattering() {
         setGameState(new ScatteringGameState(this));
-        new ScatterRunnable(this, getScatterPlayerUUIDs()).runTaskTimer(UHC.getInstance(), 0, 20);
+        List<UUID> playerList = new ArrayList<>(getScatterPlayerUUIDs());
+
+        // Create the progressive scatter manager
+        ProgressiveScatterManager scatterManager = new ProgressiveScatterManager(this, playerList, initialBorderSize);
+        scatterManager.startScattering();
     }
 
     public void startGame() {
@@ -166,22 +171,19 @@ public class Game {
     private void setWorldBorder(int borderSize) {
         World world = Bukkit.getWorld(worldName);
         WorldBorder worldBorder = world.getWorldBorder();
+        worldBorder.setDamageAmount(0);
+        worldBorder.setDamageBuffer(1000);
         worldBorder.setCenter(0.5, 0.5);
         worldBorder.setSize(borderSize * 2 - 1.5);
 
-        for (Player player : world.getPlayers()) {
-            if (!GameUtil.isEntityInBorder(player, worldBorder)) {
-                GameUtil.teleportToNearestBorderPoint(player, worldBorder);
-            }
-        }
+        // Updated call with world parameter TODO Right now players are handled here aswell undo that.
 
-        // Updated call with world parameter
         combatLogVillagerManager.handleBorderShrink(worldBorder, world);
     }
 
     private void buildSetBorder(int borderSize) {
-        setWorldBorder(borderSize);
         setCurrentBorderSize(borderSize);
+        setWorldBorder(borderSize);
         GameUtil.shrinkBorder(borderSize, Bukkit.getWorld(worldName));
     }
 

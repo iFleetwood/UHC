@@ -9,10 +9,7 @@ import cc.kasumi.uhc.player.UHCPlayer;
 import cc.kasumi.uhc.util.GameUtil;
 import lombok.Getter;
 import lombok.Setter;
-import org.bukkit.Chunk;
-import org.bukkit.Location;
-import org.bukkit.World;
-import org.bukkit.WorldBorder;
+import org.bukkit.*;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Villager;
@@ -24,7 +21,7 @@ import java.util.*;
 public class CombatLogVillagerManager {
 
     private static final int COMBAT_LOG_TIMEOUT_SECONDS = 180; // 3 minutes
-    private static final double VILLAGER_HEALTH = 8.0D;
+    private static final double VILLAGER_HEALTH = 20.0D;
 
     private final Map<Villager, CombatLogPlayer> combatLogVillagers = new HashMap<>();
     private final Set<Chunk> combatLogVillagerChunks = new HashSet<>();
@@ -44,9 +41,12 @@ public class CombatLogVillagerManager {
         Location spawnLocation = player.getLocation().clone();
         Chunk playerChunk = spawnLocation.getChunk();
 
-        Villager villager = createVillager(spawnLocation, player.getName());
+        Villager villager = createVillager(spawnLocation);
+
         BukkitTask timeoutTask = createTimeoutTask(playerUUID);
         CombatLogPlayer combatLogPlayer = new CombatLogPlayer(playerUUID, player, spawnLocation, timeoutTask);
+
+        updateVillagerHealthBar(villager, combatLogPlayer, villager.getHealth());
 
         combatLogVillagers.put(villager, combatLogPlayer);
         combatLogVillagerChunks.add(playerChunk);
@@ -149,16 +149,24 @@ public class CombatLogVillagerManager {
 
     // Private helper methods
 
-    private Villager createVillager(Location location, String playerName) {
+    private Villager createVillager(Location location) {
         World world = location.getWorld();
         Villager villager = (Villager) world.spawnEntity(location, EntityType.VILLAGER);
 
-        villager.setCustomName(playerName);
-        villager.setCustomNameVisible(true);
         villager.setHealth(VILLAGER_HEALTH);
         villager.setProfession(Villager.Profession.FARMER);
 
         return villager;
+    }
+
+    public void updateVillagerHealthBar(Villager villager, CombatLogPlayer combatLogPlayer, double currentHealth) {
+        int current = (int) Math.ceil(currentHealth);
+        int max = (int) VILLAGER_HEALTH;
+
+        villager.setCustomName(ChatColor.GRAY + Bukkit.getOfflinePlayer(combatLogPlayer.getUuid()).getName() +
+                ChatColor.DARK_RED + " ❤" + ChatColor.RED + current + ChatColor.GRAY + "/" + ChatColor.RED + max);
+
+        villager.setCustomNameVisible(true);
     }
 
     private BukkitTask createTimeoutTask(UUID playerUUID) {
@@ -220,6 +228,7 @@ public class CombatLogVillagerManager {
     /**
      * Data class to hold villager and combat log player together
      */
+
     @Getter
     public static class CombatLogEntry {
         private final Villager villager;

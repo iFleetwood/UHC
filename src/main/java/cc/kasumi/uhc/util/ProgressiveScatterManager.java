@@ -199,8 +199,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             }
         }
 
-        // Additional checks can be added here (water, lava, etc.)
-        return true;
+        return GameUtil.isLocationSafe(candidate);
     }
 
     public void startScattering() {

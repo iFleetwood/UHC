@@ -5,7 +5,6 @@ import cc.kasumi.uhc.combatlog.CombatLogPlayer;
 import cc.kasumi.uhc.combatlog.CombatLogVillagerManager;
 import lombok.Getter;
 import org.bukkit.*;
-import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Villager;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -238,6 +237,14 @@ public class ProgressiveBorderTeleporter extends BukkitRunnable {
         int totalTeleported = playersToTeleport.size() + villagersToTeleport.size();
         Bukkit.getLogger().info("Border teleportation completed: " + totalTeleported + " entities relocated");
 
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                worldBorder.setDamageAmount(0.2);
+                worldBorder.setDamageBuffer(5.0);
+            }
+        }.runTaskLater(UHC.getInstance(), 3*20);
+
         cancel();
     }
 
@@ -269,6 +276,9 @@ public class ProgressiveBorderTeleporter extends BukkitRunnable {
 
     @Override
     public void cancel() {
+        worldBorder.setDamageAmount(0.2);
+        worldBorder.setDamageBuffer(5.0);
+
         this.cancelled = true;
         super.cancel();
     }

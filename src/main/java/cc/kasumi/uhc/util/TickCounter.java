@@ -1,6 +1,7 @@
 package cc.kasumi.uhc.util;
 
 import cc.kasumi.uhc.UHC;
+import lombok.Getter;
 import org.bukkit.scheduler.BukkitRunnable;
 
 /**
@@ -8,6 +9,7 @@ import org.bukkit.scheduler.BukkitRunnable;
  */
 public class TickCounter {
 
+    @Getter
     private volatile long currentTick = 0;
     private BukkitRunnable tickTask;
 
@@ -46,9 +48,6 @@ public class TickCounter {
     /**
      * Gets the current server tick count
      */
-    public long getCurrentTick() {
-        return currentTick;
-    }
 
     /**
      * Resets the tick counter (useful for testing)
