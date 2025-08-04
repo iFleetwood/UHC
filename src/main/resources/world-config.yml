@@ -1,0 +1,204 @@
+# =============================================================================
+# UHC World Configuration
+# =============================================================================
+# This file controls all aspects of world generation and management for UHC
+# Changes to this file require a server restart or /worldconfig reload
+
+# =============================================================================
+# WORLD SETTINGS
+# =============================================================================
+world:
+  # Name of the UHC world (3-16 characters)
+  uhc-world-name: "uhc"
+
+  # Name of the lobby world (3-16 characters)
+  lobby-world-name: "lobby"
+
+  # World generation type (NORMAL, FLAT, LARGE_BIOMES, AMPLIFIED)
+  type: "NORMAL"
+
+  # Whether to generate structures (villages, temples, etc.)
+  generate-structures: true
+
+  # Enable biome swapping (converts oceans to forests, etc.)
+  biome-swap-enabled: true
+
+  # Enable giant cave generation
+  giant-caves-enabled: true
+
+  # Custom seed settings
+  use-custom-seed: false
+  seed: 0  # Set to non-zero value if use-custom-seed is true
+
+# =============================================================================
+# CAVE GENERATION SETTINGS
+# =============================================================================
+caves:
+  # Whether giant caves are enabled
+  enabled: true
+
+  # Cave generation cutoff percentage (0-100)
+  # Higher values = fewer caves, lower values = more caves
+  cutoff: 55
+
+  # Y-level range for cave generation
+  min-y: 6    # Minimum Y level (0-255)
+  max-y: 52   # Maximum Y level (must be > min-y)
+
+  # Cave shape stretching
+  horizontal-stretch: 16  # Higher = wider caves (1-100)
+  vertical-stretch: 9     # Higher = taller caves (1-100)
+
+# =============================================================================
+# WORLD GENERATION SETTINGS
+# =============================================================================
+generation:
+  # Radius of chunks to pregenerate around spawn (0-100)
+  pregenerate-radius: 10
+
+  # Whether to automatically pregenerate chunks on server startup
+  pregenerate-on-startup: false
+
+  # Whether to automatically reset the UHC world between games
+  auto-reset-world: false
+
+# =============================================================================
+# WORLD BORDER SETTINGS
+# =============================================================================
+border:
+  # Default border size when worlds are created
+  default-size: 1000
+
+  # Amount of damage dealt when outside border
+  damage-amount: 0.2
+
+  # Distance outside border before damage starts
+  damage-buffer: 5.0
+
+# =============================================================================
+# PERFORMANCE SETTINGS
+# =============================================================================
+performance:
+  # Number of chunks to generate per tick during pregeneration
+  chunks-per-tick: 2
+
+  # Number of blocks to place per tick during wall building
+  wall-blocks-per-tick: 100
+
+  # Whether to force load spawn chunks
+  force-load-spawn: true
+
+  # Radius of spawn chunks to keep loaded
+  spawn-chunk-radius: 2
+
+# =============================================================================
+# ADVANCED SETTINGS
+# =============================================================================
+advanced:
+  # Whether to log detailed world generation information
+  verbose-logging: false
+
+  # Whether to validate configuration on startup
+  validate-config: true
+
+  # Maximum number of world generation retries
+  max-generation-retries: 3
+
+  # Timeout for world operations (seconds)
+  world-operation-timeout: 300
+
+# =============================================================================
+# POPULATOR SETTINGS
+# =============================================================================
+populators:
+  # Whether to automatically add populators to UHC worlds
+  auto-add-to-uhc: true
+
+  # Whether to add populators to test worlds
+  auto-add-to-test: false
+
+  # Whether to log populator activity
+  log-activity: true
+
+  # Whether to validate populator settings
+  validate-settings: true
+
+# =============================================================================
+# BIOME SWAP CONFIGURATION
+# =============================================================================
+biome-swaps:
+  # Whether biome swapping is enabled globally
+  enabled: true
+
+  # Specific biome swap rules (from -> to)
+  rules:
+    ocean: "forest"
+    deep-ocean: "forest"
+    extreme-hills: "plains"
+    extreme-hills-plus: "plains"
+    desert-hills: "plains"
+    frozen-ocean: "forest"
+    ice-plains: "plains"
+    taiga-hills: "forest"
+    small-mountains: "plains"
+    jungle: "plains"
+    jungle-hills: "plains"
+    jungle-edge: "plains"
+    cold-taiga: "plains"
+    cold-taiga-hills: "plains"
+    roofed-forest: "plains"
+    mega-taiga-hills: "plains"
+    mega-taiga: "plains"
+    savanna: "forest"
+    savanna-plateau: "forest"
+    mesa: "plains"
+    mesa-plateau: "plains"
+    mesa-plateau-f: "plains"
+
+# =============================================================================
+# WORLD CLEANUP SETTINGS
+# =============================================================================
+cleanup:
+  # Whether to delete old world files on reset
+  delete-old-worlds: true
+
+  # Whether to backup worlds before deletion
+  backup-before-delete: false
+
+  # Directory for world backups (relative to server root)
+  backup-directory: "world-backups"
+
+  # Maximum number of backups to keep
+  max-backups: 5
+
+# =============================================================================
+# DEBUGGING AND MONITORING
+# =============================================================================
+debug:
+  # Enable debug mode for world generation
+  enabled: false
+
+  # Log chunk generation details
+  log-chunk-generation: false
+
+  # Log populator execution details
+  log-populator-execution: false
+
+  # Log biome swap operations
+  log-biome-swaps: false
+
+  # Monitor world generation performance
+  monitor-performance: true
+
+# =============================================================================
+# COMPATIBILITY SETTINGS
+# =============================================================================
+compatibility:
+  # Version compatibility mode (1.8, 1.12, 1.16, etc.)
+  minecraft-version: "1.8"
+
+  # Whether to use legacy material names
+  use-legacy-materials: true
+
+  # Whether to use async chunk loading (not recommended for 1.8)
+  async-chunk-loading: false

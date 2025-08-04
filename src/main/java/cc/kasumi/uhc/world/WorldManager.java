@@ -39,8 +39,12 @@ public class WorldManager {
         this.logger = plugin.getLogger();
         this.biomeSwap = new BiomeSwap();
         this.worldConfig = new WorldConfig(plugin);
-        this.populatorManager = new WorldPopulatorManager(this);
+
+        // Initialize settings BEFORE creating WorldPopulatorManager
         this.settings = createSettingsFromConfig();
+
+        // Now create the populator manager
+        this.populatorManager = new WorldPopulatorManager(this);
     }
 
     /**
