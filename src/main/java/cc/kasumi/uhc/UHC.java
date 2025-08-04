@@ -3,6 +3,7 @@ package cc.kasumi.uhc;
 import cc.kasumi.uhc.command.*;
 import cc.kasumi.uhc.game.Game;
 import cc.kasumi.uhc.listener.PlayerListener;
+import cc.kasumi.uhc.util.GameUtil;
 import cc.kasumi.uhc.util.TickCounter;
 import co.aikar.commands.PaperCommandManager;
 import com.comphenix.protocol.ProtocolLibrary;
@@ -45,6 +46,9 @@ public final class UHC extends JavaPlugin {
             tickCounter.stop();
         }
 
+        // Cancel wall builders to prevent lag on reload
+        GameUtil.cancelAllWallBuilders();
+
         // Cancel any remaining tasks
         Bukkit.getScheduler().cancelTasks(this);
     }
@@ -65,5 +69,6 @@ public final class UHC extends JavaPlugin {
         paperCommandManager.registerCommand(new TestCommand());
         paperCommandManager.registerCommand(new StateCommand());
         paperCommandManager.registerCommand(new TestBorderCommand());
+        paperCommandManager.registerCommand(new TickTimeCommand());
     }
 }

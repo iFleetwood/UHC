@@ -142,15 +142,9 @@ public class CombatLogVillagerManager {
     /**
      * Handles border shrinking by teleporting any villagers outside the border
      */
-    public void handleBorderShrink(WorldBorder worldBorder) {
-        for (Map.Entry<Villager, CombatLogPlayer> entry : combatLogVillagers.entrySet()) {
-            Villager villager = entry.getKey();
-            CombatLogPlayer combatLogPlayer = entry.getValue();
-
-            if (!GameUtil.isEntityInBorder(villager, worldBorder)) {
-                relocateVillagerToBorder(villager, combatLogPlayer, worldBorder);
-            }
-        }
+    public void handleBorderShrink(WorldBorder worldBorder, World world) {
+        // Use progressive teleportation to prevent lag
+        GameUtil.startProgressiveBorderTeleport(worldBorder, world, this);
     }
 
     // Private helper methods

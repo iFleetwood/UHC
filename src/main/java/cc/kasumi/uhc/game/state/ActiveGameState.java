@@ -64,7 +64,6 @@ public class ActiveGameState extends GameState {
 
         if (state == PlayerState.COMBAT_LOG) {
             uhcPlayer.setState(PlayerState.ALIVE);
-            // TODO Fix so we don't loop twice though the entry set
 
             CombatLogVillagerManager.CombatLogEntry entry = combatLogVillagerManager.findCombatLogEntry(uuid);
             if (entry != null && entry.getCombatLogPlayer().isMoved()) {

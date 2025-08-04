@@ -166,7 +166,7 @@ public class Game {
     private void setWorldBorder(int borderSize) {
         World world = Bukkit.getWorld(worldName);
         WorldBorder worldBorder = world.getWorldBorder();
-        worldBorder.setCenter(0.5, 0.5);  // Offset center by 0.5
+        worldBorder.setCenter(0.5, 0.5);
         worldBorder.setSize(borderSize * 2 - 1.5);
 
         for (Player player : world.getPlayers()) {
@@ -175,7 +175,8 @@ public class Game {
             }
         }
 
-        combatLogVillagerManager.handleBorderShrink(worldBorder);
+        // Updated call with world parameter
+        combatLogVillagerManager.handleBorderShrink(worldBorder, world);
     }
 
     private void buildSetBorder(int borderSize) {
