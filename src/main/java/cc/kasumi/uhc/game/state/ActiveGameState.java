@@ -107,7 +107,7 @@ public class ActiveGameState extends GameState {
             return;
         }
 
-        if (!combatLogVillagerManager.getCombatLogVillagers().containsKey(villager)) {
+        if (!combatLogVillagerManager.isControlledVillager(villager)) {
             return;
         }
 
@@ -142,7 +142,7 @@ public class ActiveGameState extends GameState {
     public void onEntityTarget(EntityTargetLivingEntityEvent event) {
         LivingEntity target = event.getTarget();
 
-        if (!(target instanceof Villager villager) || !combatLogVillagerManager.getCombatLogVillagers().containsKey(villager)) {
+        if (!(target instanceof Villager villager) || !combatLogVillagerManager.isControlledVillager(villager)) {
             return;
         }
 
@@ -161,7 +161,7 @@ public class ActiveGameState extends GameState {
 
             Villager villager = (Villager) entity;
 
-            if (combatLogVillagerManager.getCombatLogVillagers().containsKey(villager) && !game.isPvpEnabled()) {
+            if (combatLogVillagerManager.isControlledVillager(villager) && !game.isPvpEnabled()) {
                 event.setCancelled(true);
             }
 

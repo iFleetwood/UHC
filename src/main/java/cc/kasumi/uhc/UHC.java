@@ -3,6 +3,7 @@ package cc.kasumi.uhc;
 import cc.kasumi.uhc.command.*;
 import cc.kasumi.uhc.game.Game;
 import cc.kasumi.uhc.listener.PlayerListener;
+import cc.kasumi.uhc.util.TickCounter;
 import co.aikar.commands.PaperCommandManager;
 import com.comphenix.protocol.ProtocolLibrary;
 import com.comphenix.protocol.ProtocolManager;
@@ -20,12 +21,15 @@ public final class UHC extends JavaPlugin {
     private static ProtocolManager protocolManager;
 
     private Game game;
-
     private PaperCommandManager paperCommandManager;
+    private TickCounter tickCounter; // Add this
 
     @Override
     public void onEnable() {
         instance = this;
+
+        // Initialize tick counter first
+        tickCounter = TickCounter.getInstance();
 
         game = new Game();
 
@@ -36,12 +40,17 @@ public final class UHC extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        // Cleanup resources
+        if (tickCounter != null) {
+            tickCounter.stop();
+        }
 
+        // Cancel any remaining tasks
+        Bukkit.getScheduler().cancelTasks(this);
     }
 
     private void registerListeners() {
         PluginManager pluginManager = Bukkit.getPluginManager();
-
         pluginManager.registerEvents(new PlayerListener(game), this);
     }
 

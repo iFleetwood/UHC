@@ -19,6 +19,5 @@ public class CombatLogVillagerTask extends BukkitRunnable {
         Game game = UHC.getInstance().getGame();
 
         game.getCombatLogVillagerManager().deSpawnAndKillCombatLogVillager(uuid);
-        game.removePlayer(uuid);
     }
 }

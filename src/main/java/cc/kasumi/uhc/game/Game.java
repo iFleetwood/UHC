@@ -10,6 +10,7 @@ import cc.kasumi.uhc.game.task.*;
 import cc.kasumi.uhc.player.PlayerState;
 import cc.kasumi.uhc.player.UHCPlayer;
 import cc.kasumi.uhc.util.GameUtil;
+import cc.kasumi.uhc.util.TickCounter;
 import lombok.Getter;
 import lombok.Setter;
 import org.bukkit.*;
@@ -41,13 +42,18 @@ public class Game {
     private int shrinkInitialBorder = 30 * 60;
     private int finalBorderSize = 25;
 
-    private long startTimeMillis;
+    private long startTimeMillis; // Keep for compatibility/logging
+    private long startTimeTicks;  // NEW: Tick-based game timer
+    private long gameStartTick;   // NEW: When the game actually started
 
     private boolean pvpEnabled = false;
 
     private String worldName = "world";
 
+
     private boolean startCountdownStarted = false;
+
+    private TickCounter tickCounter = TickCounter.getInstance();
 
     public Game() {
         this.state.onEnable();
@@ -94,7 +100,10 @@ public class Game {
     public void startGame() {
         setGameState(new ActiveGameState(this));
 
+        // Set both timers for compatibility
         this.startTimeMillis = System.currentTimeMillis();
+        this.gameStartTick = tickCounter.getCurrentTick();
+        this.startTimeTicks = gameStartTick;
 
         buildSetInitialBorder();
 
@@ -197,6 +206,46 @@ public class Game {
 
     public boolean isGameStarted() {
         return !(state instanceof WaitingGameState);
+    }
+
+    /**
+     * Gets current server tick count (20 ticks per second)
+     */
+    public long getCurrentServerTick() {
+        // Bukkit doesn't have a direct API for this, so we'll track it ourselves
+        return tickCounter.getCurrentTick();
+    }
+
+    /**
+     * Gets game duration in ticks since game started
+     */
+    public long getGameDurationTicks() {
+        if (gameStartTick == 0) return 0;
+        return getCurrentServerTick() - gameStartTick;
+    }
+
+    /**
+     * Gets game duration in seconds (tick-based)
+     */
+    public long getGameDurationSeconds() {
+        return getGameDurationTicks() / 20;
+    }
+
+    /**
+     * Gets game duration in minutes (tick-based)
+     */
+    public long getGameDurationMinutes() {
+        return getGameDurationSeconds() / 60;
+    }
+
+    /**
+     * Formats game duration as MM:SS
+     */
+    public String getFormattedGameDuration() {
+        long totalSeconds = getGameDurationSeconds();
+        long minutes = totalSeconds / 60;
+        long seconds = totalSeconds % 60;
+        return String.format("%02d:%02d", minutes, seconds);
     }
 
     public void putUHCPlayer(UUID uuid, UHCPlayer uhcPlayer) {
