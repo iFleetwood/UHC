@@ -290,8 +290,7 @@ public class TeamCommand extends BaseCommand {
     public void onBalance(CommandSender sender) {
         TeamManager teamManager = UHC.getInstance().getGame().getTeamManager();
 
-        teamManager.balanceTeams();
-        sender.sendMessage(ChatColor.GREEN + "Teams have been balanced!");
+        sender.sendMessage(ChatColor.RED + "NOT WORKING RIGHT NOW!");
     }
 
     @Subcommand("clear")

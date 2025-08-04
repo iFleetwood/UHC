@@ -2,7 +2,6 @@ package cc.kasumi.uhc.game;
 
 import cc.kasumi.uhc.UHC;
 import cc.kasumi.uhc.barapi.BarAPI;
-import cc.kasumi.uhc.combatlog.CombatLogPlayer;
 import cc.kasumi.uhc.combatlog.CombatLogVillagerManager;
 import cc.kasumi.uhc.game.state.ActiveGameState;
 import cc.kasumi.uhc.game.state.ScatteringGameState;
@@ -12,21 +11,23 @@ import cc.kasumi.uhc.player.PlayerState;
 import cc.kasumi.uhc.player.UHCPlayer;
 import cc.kasumi.uhc.scenario.ScenarioManager;
 import cc.kasumi.uhc.team.TeamManager;
-import cc.kasumi.uhc.team.TeamScatterManager;
 import cc.kasumi.uhc.team.UHCTeam;
 import cc.kasumi.uhc.util.GameUtil;
-import cc.kasumi.uhc.util.ProgressiveScatterManager;
 import cc.kasumi.uhc.util.TickCounter;
+import cc.kasumi.uhc.util.ProgressiveScatterManager;
 import cc.kasumi.uhc.world.WorldManager;
 import lombok.Getter;
 import lombok.Setter;
 import org.bukkit.*;
 import org.bukkit.entity.Player;
-import org.bukkit.entity.Villager;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.*;
 
+/**
+ * Refactored Game class that uses teams as the core system
+ * Team size of 1 = solo mode, team size > 1 = team mode
+ */
 @Getter
 @Setter
 public class Game {
@@ -39,12 +40,14 @@ public class Game {
 
     private GameState state = new WaitingGameState(this);
 
+    // Game settings
     private int maxPlayers = 100;
     private int pvpTime = 30;
     private int healTime = 10 * 60;
     private int starterFood = 10;
+    private int maxTeamSize = 1; // 1 = solo, >1 = teams
 
-    //border info
+    // Border info
     private int initialBorderSize = 1000;
     private int currentBorderSize = initialBorderSize;
     private int shrinkInterval = 5 * 60;
@@ -52,26 +55,23 @@ public class Game {
     private int shrinkInitialBorder = 30 * 60;
     private int finalBorderSize = 25;
 
-    private long startTimeMillis; // Keep for compatibility/logging
-    private long startTimeTicks;  // NEW: Tick-based game timer
-    private long gameStartTick;   // NEW: When the game actually started
+    // Game timing
+    private long startTimeMillis;
+    private long startTimeTicks;
+    private long gameStartTick;
 
     private boolean pvpEnabled = false;
     private boolean startCountdownStarted = false;
-    private boolean teamMode = false; // NEW: Whether teams are enabled
 
     private TickCounter tickCounter = TickCounter.getInstance();
 
     // World Management Integration
     private WorldManager worldManager;
-    private String worldName = "uhc"; // Default, will be updated by WorldManager
+    private String worldName = "uhc";
 
     public Game() {
         this.worldManager = UHC.getInstance().getWorldManager();
-
-        // Initialize world system
         initializeWorldSystem();
-
         this.state.onEnable();
     }
 
@@ -79,13 +79,10 @@ public class Game {
      * Initialize the world system for UHC
      */
     private void initializeWorldSystem() {
-        // Get the configured UHC world name
         this.worldName = worldManager.getUHCWorldName();
 
-        // Ensure UHC world exists and is ready
         if (!isWorldReady()) {
             UHC.getInstance().getLogger().info("UHC world not ready, will initialize when available");
-            // Schedule a check for when world becomes available
             scheduleWorldReadyCheck();
         } else {
             setupInitialGameWorld();
@@ -98,7 +95,7 @@ public class Game {
     private void scheduleWorldReadyCheck() {
         new BukkitRunnable() {
             private int attempts = 0;
-            private final int maxAttempts = 60; // 30 seconds maximum wait
+            private final int maxAttempts = 60;
 
             @Override
             public void run() {
@@ -115,7 +112,7 @@ public class Game {
                     UHC.getInstance().getLogger().info("Still waiting for UHC world... (attempt " + attempts + "/" + maxAttempts + ")");
                 }
             }
-        }.runTaskTimer(UHC.getInstance(), 10L, 10L); // Check every 0.5 seconds
+        }.runTaskTimer(UHC.getInstance(), 10L, 10L);
     }
 
     /**
@@ -144,7 +141,6 @@ public class Game {
     }
 
     private boolean isValidTransition(GameState from, GameState to) {
-        // Waiting -> Scattering -> Active
         if (from instanceof WaitingGameState) {
             return to instanceof ScatteringGameState;
         }
@@ -198,18 +194,13 @@ public class Game {
     public void resetWorldForNewGame() {
         UHC.getInstance().getLogger().info("Resetting world for new game...");
 
-        // Teleport all players to lobby first
         teleportAllPlayersToLobby();
 
         worldManager.resetUHCWorld().thenRun(() -> {
-            // World has been reset, reinitialize game
             World newWorld = worldManager.getUhcWorld();
             this.worldName = newWorld.getName();
             initWorldEnvironment(newWorld);
-
-            // Reset game state
             resetGameState();
-
             UHC.getInstance().getLogger().info("World reset completed for new game!");
         }).exceptionally(throwable -> {
             UHC.getInstance().getLogger().severe("Failed to reset world: " + throwable.getMessage());
@@ -232,12 +223,10 @@ public class Game {
         this.startTimeTicks = 0;
         this.startTimeMillis = 0;
 
-        // Clear teams if in team mode
-        if (teamMode) {
-            teamManager.clearAllTeams();
-        }
+        // Clear all teams
+        teamManager.clearAllTeams();
 
-        // Clear any existing tasks
+        // Cancel any existing tasks
         Bukkit.getScheduler().cancelTasks(UHC.getInstance());
 
         // Reset border
@@ -276,7 +265,7 @@ public class Game {
         }
 
         // Basic world rules
-        world.setTime(6000); // Noon
+        world.setTime(6000);
         world.setWeatherDuration(0);
         world.setGameRuleValue("doDaylightCycle", "false");
         world.setGameRuleValue("doWeatherCycle", "false");
@@ -286,11 +275,9 @@ public class Game {
         world.setGameRuleValue("doFireTick", "false");
         world.setGameRuleValue("doMobSpawning", "true");
 
-        // Set weather
         world.setStorm(false);
         world.setThundering(false);
 
-        // Ensure spawn is at 0,0
         Location spawn = new Location(world, 0.5, world.getHighestBlockYAt(0, 0) + 1, 0.5);
         world.setSpawnLocation(spawn.getBlockX(), spawn.getBlockY(), spawn.getBlockZ());
 
@@ -298,7 +285,7 @@ public class Game {
     }
 
     /**
-     * Enhanced border setting with world validation and combat log handling
+     * Enhanced border setting with world validation
      */
     private void setWorldBorder(int borderSize) {
         if (!isWorldReady()) {
@@ -318,14 +305,13 @@ public class Game {
         worldBorder.setCenter(0.5, 0.5);
         worldBorder.setSize(borderSize * 2 - 1.5);
 
-        // Handle combat log villagers during border changes
         combatLogVillagerManager.handleBorderShrink(worldBorder, world);
 
         UHC.getInstance().getLogger().info("World border set to size: " + borderSize + " in world: " + world.getName());
     }
 
     /**
-     * Enhanced scattering with team support and proper error handling
+     * Start scattering using unified system
      */
     public void startScattering() {
         if (!isWorldReady()) {
@@ -343,23 +329,13 @@ public class Game {
 
         setGameState(new ScatteringGameState(this));
 
-        // Check if we should use team scattering
-        if (teamMode && !teamManager.getAllTeams().isEmpty()) {
-            startTeamScattering();
-        } else {
-            startIndividualScattering();
-        }
-    }
+        // Ensure all online players are on teams
+        ensureAllPlayersOnTeams();
 
-    /**
-     * Start team-based scattering
-     */
-    private void startTeamScattering() {
         Collection<UHCTeam> teams = teamManager.getAllTeams();
-
         if (teams.isEmpty()) {
-            UHC.getInstance().getLogger().warning("Team mode enabled but no teams found! Switching to individual scatter.");
-            startIndividualScattering();
+            UHC.getInstance().getLogger().warning("No teams found! Starting game immediately.");
+            startGame();
             return;
         }
 
@@ -376,33 +352,35 @@ public class Game {
             return;
         }
 
-        Bukkit.broadcastMessage(ChatColor.GREEN + "Starting team scatter for " + teamsWithPlayers +
+        Bukkit.broadcastMessage(ChatColor.GREEN + "Starting scatter for " + teamsWithPlayers +
                 " teams in world: " + worldName);
 
-        TeamScatterManager teamScatterManager = new TeamScatterManager(this, initialBorderSize);
-        teamScatterManager.startScattering();
+        ProgressiveScatterManager scatterManager = new ProgressiveScatterManager(this, initialBorderSize);
+        scatterManager.startScattering();
     }
 
     /**
-     * Start individual player scattering
+     * Ensure all online players are on teams
+     * Create solo teams for players not on teams
      */
-    private void startIndividualScattering() {
-        List<UUID> playerList = new ArrayList<>(getScatterPlayerUUIDs());
+    private void ensureAllPlayersOnTeams() {
+        int soloTeamsCreated = 0;
 
-        if (playerList.isEmpty()) {
-            UHC.getInstance().getLogger().warning("No players to scatter!");
-            Bukkit.broadcastMessage(ChatColor.YELLOW + "No players to scatter! Starting game immediately.");
-            startGame();
-            return;
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (!teamManager.isPlayerOnTeam(player.getUniqueId())) {
+                // Create a solo team for this player
+                String teamName = player.getName() + "'s Team";
+                UHCTeam soloTeam = teamManager.createTeam(teamName);
+                if (soloTeam != null) {
+                    teamManager.addPlayerToTeam(player.getUniqueId(), soloTeam.getTeamId());
+                    soloTeamsCreated++;
+                }
+            }
         }
 
-        World world = getWorld();
-        Bukkit.broadcastMessage(ChatColor.GREEN + "Starting individual scatter for " + playerList.size() +
-                " players in world: " + world.getName());
-
-        // Create the progressive scatter manager
-        ProgressiveScatterManager scatterManager = new ProgressiveScatterManager(this, playerList, initialBorderSize);
-        scatterManager.startScattering();
+        if (soloTeamsCreated > 0) {
+            UHC.getInstance().getLogger().info("Created " + soloTeamsCreated + " solo teams for unassigned players");
+        }
     }
 
     /**
@@ -441,13 +419,17 @@ public class Game {
         // Set all players to alive state
         players.forEach((uuid, uhcPlayer) -> uhcPlayer.setPlayerStateAndManage(PlayerState.ALIVE));
 
-        // Announce game start with team info if applicable
-        if (teamMode) {
-            int aliveTeams = teamManager.getAliveTeams().size();
-            Bukkit.broadcastMessage(ChatColor.GREEN + "Game started successfully with " + aliveTeams +
-                    " teams in world: " + world.getName());
+        // Announce game start with team info
+        int aliveTeams = teamManager.getAliveTeams().size();
+        int totalPlayers = 0;
+        for (UHCTeam team : teamManager.getAllTeams()) {
+            totalPlayers += team.getSize();
+        }
+
+        if (maxTeamSize == 1) {
+            Bukkit.broadcastMessage(ChatColor.GREEN + "Solo UHC started! " + totalPlayers + " players competing.");
         } else {
-            Bukkit.broadcastMessage(ChatColor.GREEN + "Game started successfully in world: " + world.getName());
+            Bukkit.broadcastMessage(ChatColor.GREEN + "Team UHC started! " + aliveTeams + " teams (" + totalPlayers + " players) competing.");
         }
 
         UHC.getInstance().getLogger().info("Game started successfully in world: " + worldName);
@@ -531,20 +513,6 @@ public class Game {
         }
     }
 
-    public Set<UUID> getScatterPlayerUUIDs() {
-        Set<UUID> uuids = new HashSet<>();
-
-        for (UHCPlayer scatterPlayers : getAlivePlayers()) {
-            // Ensure player is actually online and in the correct world
-            Player player = scatterPlayers.getPlayer();
-            if (player != null && player.isOnline()) {
-                uuids.add(scatterPlayers.getUuid());
-            }
-        }
-
-        return uuids;
-    }
-
     public Set<UHCPlayer> getOnlineAlivePlayers() {
         Set<UHCPlayer> alivePlayers = new HashSet<>();
 
@@ -565,7 +533,6 @@ public class Game {
 
         for (UHCPlayer uhcPlayer : players.values()) {
             if (uhcPlayer.getState() != PlayerState.ALIVE && uhcPlayer.getState() != PlayerState.COMBAT_LOG) continue;
-
             alivePlayers.add(uhcPlayer);
         }
 
@@ -588,13 +555,9 @@ public class Game {
         if (world != null) {
             GameUtil.shrinkBorder(borderSize, world);
 
-            if (teamMode) {
-                int aliveTeams = teamManager.getAliveTeams().size();
-                Bukkit.broadcastMessage(ChatColor.GOLD + "Border built with size: " + borderSize +
-                        " (" + aliveTeams + " teams remaining)");
-            } else {
-                Bukkit.broadcastMessage(ChatColor.GOLD + "Border built with size: " + borderSize);
-            }
+            int aliveTeams = teamManager.getAliveTeams().size();
+            Bukkit.broadcastMessage(ChatColor.GOLD + "Border built with size: " + borderSize +
+                    " (" + aliveTeams + " teams remaining)");
         }
     }
 
@@ -620,15 +583,11 @@ public class Game {
         World world = getWorld();
         if (world != null) {
             int playersInWorld = world.getPlayers().size();
-            String teamInfo = "";
-
-            if (teamMode) {
-                int aliveTeams = teamManager.getAliveTeams().size();
-                teamInfo = ", Teams: " + aliveTeams;
-            }
+            int aliveTeams = teamManager.getAliveTeams().size();
 
             Bukkit.broadcastMessage(ChatColor.YELLOW + "Border shrunk from " + oldSize + " to " + currentBorderSize +
-                    ChatColor.GRAY + " (World: " + world.getName() + ", Players: " + playersInWorld + teamInfo + ")");
+                    ChatColor.GRAY + " (World: " + world.getName() + ", Players: " + playersInWorld +
+                    ", Teams: " + aliveTeams + ")");
         }
     }
 
@@ -732,11 +691,7 @@ public class Game {
 
     public void removePlayer(UUID uuid) {
         players.remove(uuid);
-
-        // Remove from team if in team mode
-        if (teamMode) {
-            teamManager.removePlayerFromTeam(uuid);
-        }
+        teamManager.removePlayerFromTeam(uuid);
     }
 
     public UHCPlayer getUHCPlayer(UUID uuid) {
@@ -748,25 +703,55 @@ public class Game {
     }
 
     /**
-     * Enable or disable team mode
+     * Set maximum team size (1 = solo mode, >1 = team mode)
      */
-    public void setTeamMode(boolean teamMode) {
-        this.teamMode = teamMode;
+    public void setMaxTeamSize(int maxTeamSize) {
+        this.maxTeamSize = Math.max(1, maxTeamSize);
+        teamManager.getConfig().setMaxTeamSize(this.maxTeamSize);
 
-        if (teamMode) {
-            Bukkit.broadcastMessage(ChatColor.GREEN + "Team mode enabled!");
-            UHC.getInstance().getLogger().info("Team mode enabled");
+        if (maxTeamSize == 1) {
+            UHC.getInstance().getLogger().info("Game mode set to SOLO (team size: 1)");
         } else {
-            Bukkit.broadcastMessage(ChatColor.YELLOW + "Team mode disabled!");
-            teamManager.clearAllTeams();
-            UHC.getInstance().getLogger().info("Team mode disabled, all teams cleared");
+            UHC.getInstance().getLogger().info("Game mode set to TEAMS (max team size: " + maxTeamSize + ")");
         }
     }
 
     /**
-     * Check if teams are enabled
+     * Check if game is in solo mode
+     */
+    public boolean isSoloMode() {
+        return maxTeamSize == 1;
+    }
+
+    /**
+     * Check if game is in team mode
      */
     public boolean isTeamMode() {
-        return teamMode;
+        return maxTeamSize > 1;
+    }
+
+    /**
+     * Auto-assign players to teams based on max team size
+     */
+    public void autoAssignPlayersToTeams() {
+        List<UUID> playersWithoutTeams = new ArrayList<>();
+
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (!teamManager.isPlayerOnTeam(player.getUniqueId())) {
+                playersWithoutTeams.add(player.getUniqueId());
+            }
+        }
+
+        if (playersWithoutTeams.isEmpty()) {
+            return;
+        }
+
+        if (isSoloMode()) {
+            // Create individual teams for each player
+            ensureAllPlayersOnTeams();
+        } else {
+            // Use team manager's auto-assign feature
+            teamManager.autoAssignTeams(playersWithoutTeams, maxTeamSize);
+        }
     }
 }

@@ -34,34 +34,22 @@ public class StartCommand extends BaseCommand {
         if (!game.isWorldReady()) {
             sender.sendMessage(ChatColor.RED + "Cannot start game: World is not ready!");
             sender.sendMessage(ChatColor.YELLOW + "Please wait for world generation to complete or use /world create");
-
-            // If sender is a player, give them world status
-            if (sender instanceof Player) {
-                UHC uhc = UHC.getInstance();
-                if (uhc.getWorldManager() != null) {
-                    boolean generating = uhc.getWorldManager().isWorldGenerationInProgress();
-                    sender.sendMessage(ChatColor.GRAY + "World generation in progress: " + generating);
-
-                    if (uhc.getWorldManager().getUhcWorld() == null) {
-                        sender.sendMessage(ChatColor.GRAY + "UHC world: Not loaded");
-                    } else {
-                        sender.sendMessage(ChatColor.GRAY + "UHC world: " + uhc.getWorldManager().getUhcWorld().getName());
-                    }
-                }
-            }
             return;
-        }
-
-        // Check if there are players to scatter
-        if (game.getScatterPlayerUUIDs().isEmpty()) {
-            sender.sendMessage(ChatColor.YELLOW + "Warning: No players available to scatter!");
-            sender.sendMessage(ChatColor.YELLOW + "Make sure players are online and in the correct world.");
         }
 
         // Validate world has spawn location
         if (game.getSpawnLocation() == null) {
             sender.sendMessage(ChatColor.RED + "Cannot start game: World spawn location is invalid!");
             return;
+        }
+
+        // Ensure all players are on teams
+        game.autoAssignPlayersToTeams();
+
+        // Check if there are teams to scatter
+        if (game.getTeamManager().getAllTeams().isEmpty()) {
+            sender.sendMessage(ChatColor.YELLOW + "Warning: No teams available to scatter!");
+            sender.sendMessage(ChatColor.YELLOW + "Make sure players are online.");
         }
 
         // Default countdown time
@@ -90,12 +78,10 @@ public class StartCommand extends BaseCommand {
                     " with " + countdownTime + " seconds delay");
 
             // Give additional info to the starter
-            if (sender instanceof Player) {
-                Player player = (Player) sender;
-                player.sendMessage(ChatColor.GRAY + "World: " + game.getWorldName());
-                player.sendMessage(ChatColor.GRAY + "Players to scatter: " + game.getScatterPlayerUUIDs().size());
-                player.sendMessage(ChatColor.GRAY + "Border size: " + game.getInitialBorderSize());
-            }
+            sender.sendMessage(ChatColor.GRAY + "World: " + game.getWorldName());
+            sender.sendMessage(ChatColor.GRAY + "Teams to scatter: " + game.getTeamManager().getAllTeams().size());
+            sender.sendMessage(ChatColor.GRAY + "Game mode: " + (game.isSoloMode() ? "Solo" : "Teams (size " + game.getMaxTeamSize() + ")"));
+            sender.sendMessage(ChatColor.GRAY + "Border size: " + game.getInitialBorderSize());
 
         } catch (Exception e) {
             sender.sendMessage(ChatColor.RED + "Failed to start game countdown: " + e.getMessage());

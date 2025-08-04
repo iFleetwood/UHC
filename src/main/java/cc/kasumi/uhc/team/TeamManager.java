@@ -10,6 +10,10 @@ import org.bukkit.entity.Player;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * Simplified TeamManager that handles both solo and team modes
+ * Solo mode = teams of size 1, Team mode = teams of size > 1
+ */
 @Getter
 public class TeamManager {
 
@@ -21,9 +25,9 @@ public class TeamManager {
     // Available team colors
     private static final ChatColor[] TEAM_COLORS = {
             ChatColor.RED, ChatColor.BLUE, ChatColor.GREEN, ChatColor.YELLOW,
-            ChatColor.AQUA,
-            ChatColor.GRAY, ChatColor.LIGHT_PURPLE, ChatColor.DARK_GREEN, ChatColor.DARK_BLUE,
-            ChatColor.DARK_RED, ChatColor.DARK_PURPLE, ChatColor.DARK_AQUA, ChatColor.GOLD
+            ChatColor.AQUA, ChatColor.GRAY, ChatColor.LIGHT_PURPLE, ChatColor.DARK_GREEN,
+            ChatColor.DARK_BLUE, ChatColor.DARK_RED, ChatColor.DARK_PURPLE,
+            ChatColor.DARK_AQUA, ChatColor.GOLD
     };
 
     private int colorIndex = 0;
@@ -112,8 +116,11 @@ public class TeamManager {
 
             Player player = Bukkit.getPlayer(playerUuid);
             if (player != null) {
-                player.sendMessage(ChatColor.GREEN + "You joined team " + team.getFormattedName());
-                team.sendMessage(player.getName() + " joined the team!");
+                // Only show team join message for actual teams (size > 1)
+                if (game.isTeamMode()) {
+                    player.sendMessage(ChatColor.GREEN + "You joined team " + team.getFormattedName());
+                    team.sendMessage(player.getName() + " joined the team!");
+                }
             }
 
             return true;
@@ -152,7 +159,7 @@ public class TeamManager {
         playerToTeam.remove(playerUuid);
 
         Player player = Bukkit.getPlayer(playerUuid);
-        if (player != null) {
+        if (player != null && game.isTeamMode()) {
             player.sendMessage(ChatColor.YELLOW + "You left team " + team.getFormattedName());
             team.sendMessage(player.getName() + " left the team!");
         }
@@ -253,11 +260,18 @@ public class TeamManager {
 
             if (team.isEliminated()) {
                 // Entire team eliminated
-                Bukkit.broadcastMessage(team.getFormattedName() + ChatColor.RED + " has been eliminated!");
-                team.sendMessage("Your team has been eliminated!");
+                if (game.isTeamMode()) {
+                    Bukkit.broadcastMessage(team.getFormattedName() + ChatColor.RED + " has been eliminated!");
+                    team.sendMessage("Your team has been eliminated!");
+                } else {
+                    // Solo mode - just announce player elimination
+                    Bukkit.broadcastMessage(ChatColor.RED + playerName + " has been eliminated!");
+                }
             } else {
-                // Just this player eliminated
-                team.sendMessage(ChatColor.RED + playerName + " has been eliminated!");
+                // Just this player eliminated (team mode only)
+                if (game.isTeamMode()) {
+                    team.sendMessage(ChatColor.RED + playerName + " has been eliminated!");
+                }
             }
         }
     }
@@ -272,7 +286,10 @@ public class TeamManager {
 
             Player player = Bukkit.getPlayer(playerUuid);
             String playerName = player != null ? player.getName() : "Unknown";
-            team.sendMessage(ChatColor.GREEN + playerName + " has respawned!");
+
+            if (game.isTeamMode()) {
+                team.sendMessage(ChatColor.GREEN + playerName + " has respawned!");
+            }
         }
     }
 
@@ -284,6 +301,21 @@ public class TeamManager {
             return;
         }
 
+        if (teamSize == 1) {
+            // Solo mode - create individual teams
+            for (UUID playerUuid : players) {
+                Player player = Bukkit.getPlayer(playerUuid);
+                String teamName = player != null ? player.getName() : "Player";
+                UHCTeam soloTeam = createTeam(teamName);
+                if (soloTeam != null) {
+                    addPlayerToTeam(playerUuid, soloTeam.getTeamId());
+                }
+            }
+            UHC.getInstance().getLogger().info("Created " + players.size() + " solo teams");
+            return;
+        }
+
+        // Team mode - group players into teams
         List<UUID> shuffledPlayers = new ArrayList<>(players);
         Collections.shuffle(shuffledPlayers);
 
@@ -311,55 +343,7 @@ public class TeamManager {
         }
 
         UHC.getInstance().getLogger().info("Auto-assigned " + players.size() +
-                " players to " + (teamNumber - 1) + " teams");
-    }
-
-    /**
-     * Balance teams by moving players
-     */
-    public void balanceTeams() {
-        List<UHCTeam> teamsList = new ArrayList<>(teams.values());
-        if (teamsList.size() < 2) {
-            return;
-        }
-
-        // Sort teams by size (smallest first)
-        teamsList.sort(Comparator.comparingInt(UHCTeam::getSize));
-
-        boolean changed = true;
-        while (changed) {
-            changed = false;
-            UHCTeam smallest = teamsList.get(0);
-            UHCTeam largest = teamsList.get(teamsList.size() - 1);
-
-            // If difference is more than 1, move a player
-            if (largest.getSize() - smallest.getSize() > 1) {
-                // Find a non-leader to move
-                UUID playerToMove = null;
-                for (UUID member : largest.getMembers()) {
-                    if (!largest.isTeamLeader(member)) {
-                        playerToMove = member;
-                        break;
-                    }
-                }
-
-                // If only leader remains, move them too
-                if (playerToMove == null && largest.getSize() > 1) {
-                    playerToMove = largest.getTeamLeader();
-                }
-
-                if (playerToMove != null) {
-                    removePlayerFromTeam(playerToMove);
-                    addPlayerToTeam(playerToMove, smallest.getTeamId());
-                    changed = true;
-
-                    // Re-sort after change
-                    teamsList.sort(Comparator.comparingInt(UHCTeam::getSize));
-                }
-            }
-        }
-
-        UHC.getInstance().getLogger().info("Teams balanced");
+                " players to " + (teamNumber - 1) + " teams of size " + teamSize);
     }
 
     /**
@@ -408,8 +392,35 @@ public class TeamManager {
             return false;
         }
 
+        // In solo mode, players are on different teams so this shouldn't trigger
+        if (game.isSoloMode()) {
+            return false;
+        }
+
         UHCTeam team = getPlayerTeam(attacker);
         return team != null && !team.isFriendlyFire();
+    }
+
+    /**
+     * Create solo teams for all online players not on teams
+     */
+    public void createSoloTeamsForUnassignedPlayers() {
+        int soloTeamsCreated = 0;
+
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (!isPlayerOnTeam(player.getUniqueId())) {
+                String teamName = player.getName();
+                UHCTeam soloTeam = createTeam(teamName);
+                if (soloTeam != null) {
+                    addPlayerToTeam(player.getUniqueId(), soloTeam.getTeamId());
+                    soloTeamsCreated++;
+                }
+            }
+        }
+
+        if (soloTeamsCreated > 0) {
+            UHC.getInstance().getLogger().info("Created " + soloTeamsCreated + " solo teams for unassigned players");
+        }
     }
 
     /**

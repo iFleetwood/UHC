@@ -3,7 +3,6 @@ package cc.kasumi.uhc.util;
 import cc.kasumi.uhc.UHC;
 import cc.kasumi.uhc.combatlog.CombatLogVillagerManager;
 import cc.kasumi.uhc.game.Game;
-import cc.kasumi.uhc.world.WorldManager;
 import lombok.NonNull;
 import org.bukkit.*;
 import org.bukkit.entity.Entity;
@@ -12,95 +11,13 @@ import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.*;
 
+/**
+ * Cleaned up GameUtil with simplified scattering removed
+ */
 public class GameUtil {
 
     // Track active wall builders to prevent multiple builders for same area
     private static final Map<String, ProgressiveWallBuilder> activeBuilders = new HashMap<>();
-
-    /**
-     * Get scatter location with world manager integration
-     */
-    public static Location getScatterLocation(int radius, Game game) {
-        World world = game.getWorld();
-        if (world == null) {
-            UHC.getInstance().getLogger().severe("Cannot get scatter location: world is null!");
-            return null;
-        }
-
-        return getScatterLocation(radius, world);
-    }
-
-    /**
-     * Get scatter location with specific world
-     */
-    public static Location getScatterLocation(int radius, World world) {
-        if (world == null) {
-            UHC.getInstance().getLogger().severe("Cannot get scatter location: world parameter is null!");
-            return null;
-        }
-
-        Random random = new Random();
-
-        for (int attempt = 0; attempt < 15; attempt++) { // Increased attempts for better locations
-            int x = random.nextInt(radius * 2) - radius;
-            int z = random.nextInt(radius * 2) - radius;
-
-            Location location = new Location(world, x + 0.5, 0, z + 0.5);
-            int groundY = world.getHighestBlockYAt(location);
-            location.setY(groundY + 1);
-
-            // Enhanced safety checks
-            if (isLocationSafe(location) && !isLocationNearWorldBorder(location, world)) {
-                return location;
-            }
-        }
-
-        // Enhanced fallback with world center validation
-        Location fallback = new Location(world, 0.5, world.getHighestBlockYAt(0, 0) + 1, 0.5);
-        if (isLocationSafe(fallback)) {
-            return fallback;
-        }
-
-        // Last resort - find any safe location
-        return findAnySafeLocation(world, 100);
-    }
-
-    /**
-     * Find any safe location within a radius
-     */
-    private static Location findAnySafeLocation(World world, int searchRadius) {
-        Random random = new Random();
-
-        for (int attempt = 0; attempt < 50; attempt++) {
-            int x = random.nextInt(searchRadius * 2) - searchRadius;
-            int z = random.nextInt(searchRadius * 2) - searchRadius;
-
-            Location candidate = new Location(world, x + 0.5, world.getHighestBlockYAt(x, z) + 1, z + 0.5);
-
-            if (isLocationSafe(candidate)) {
-                cc.kasumi.uhc.UHC.getInstance().getLogger().info("Found safe fallback location at: " +
-                        x + ", " + candidate.getBlockY() + ", " + z);
-                return candidate;
-            }
-        }
-
-        // Absolute fallback
-        UHC.getInstance().getLogger().warning("Could not find safe location, using world spawn");
-        return world.getSpawnLocation();
-    }
-
-    /**
-     * Check if location is near world border
-     */
-    private static boolean isLocationNearWorldBorder(Location location, World world) {
-        WorldBorder border = world.getWorldBorder();
-        Location center = border.getCenter();
-        double size = border.getSize();
-        double radius = size / 2;
-
-        double distance = location.distance(center);
-        return distance > (radius - 50); // Stay 50 blocks away from border
-    }
 
     /**
      * Enhanced location safety check
@@ -188,7 +105,7 @@ public class GameUtil {
                 material == Material.DEAD_BUSH ||
                 material == Material.SAPLING ||
                 material == Material.SNOW ||
-                material == Material.WHEAT ||  // crops
+                material == Material.WHEAT ||
                 material == Material.CARROT ||
                 material == Material.POTATO;
     }
@@ -205,25 +122,11 @@ public class GameUtil {
     }
 
     /**
-     * Progressive scatter with game integration
-     */
-    public static ProgressiveScatterManager startProgressiveScatter(Game game, List<UUID> playerUUIDs, int radius) {
-        if (!game.isWorldReady()) {
-            UHC.getInstance().getLogger().severe("Cannot start scatter: world not ready!");
-            return null;
-        }
-
-        ProgressiveScatterManager manager = new ProgressiveScatterManager(game, playerUUIDs, radius);
-        manager.startScattering();
-        return manager;
-    }
-
-    /**
      * Calculate safe border point with enhanced world validation
      */
     public static Location calculateSafeBorderPoint(Entity entity, WorldBorder border) {
         if (entity == null || border == null) {
-            cc.kasumi.uhc.UHC.getInstance().getLogger().warning("Cannot calculate border point: null entity or border");
+            UHC.getInstance().getLogger().warning("Cannot calculate border point: null entity or border");
             return null;
         }
 
@@ -246,7 +149,7 @@ public class GameUtil {
         double distToTopBottom = Math.min(Math.abs(deltaZ + radius), Math.abs(deltaZ - radius));
 
         double newX, newZ;
-        double buffer = 5.0; // Increased buffer for safety
+        double buffer = 5.0; // Safety buffer
 
         if (distToLeftRight < distToTopBottom) {
             // Teleport to left or right edge
@@ -293,7 +196,7 @@ public class GameUtil {
             if (safeLoc != null) {
                 teleportLoc = safeLoc;
             } else {
-                cc.kasumi.uhc.UHC.getInstance().getLogger().warning("Could not find safe border teleport location!");
+                UHC.getInstance().getLogger().warning("Could not find safe border teleport location!");
             }
         }
 
@@ -429,7 +332,7 @@ public class GameUtil {
             }
         }
         activeBuilders.clear();
-        cc.kasumi.uhc.UHC.getInstance().getLogger().info("Cancelled all active wall builders");
+        UHC.getInstance().getLogger().info("Cancelled all active wall builders");
     }
 
     /**
