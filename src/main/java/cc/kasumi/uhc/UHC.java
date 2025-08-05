@@ -268,13 +268,6 @@ public final class UHC extends JavaPlugin {
     }
 
     /**
-     * Get world manager instance
-     */
-    public WorldManager getWorldManager() {
-        return worldManager;
-    }
-
-    /**
      * Check if the plugin is fully initialized
      */
     public boolean isFullyInitialized() {

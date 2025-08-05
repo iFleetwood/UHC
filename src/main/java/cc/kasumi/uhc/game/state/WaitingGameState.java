@@ -8,6 +8,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 
 import java.util.UUID;
@@ -29,6 +30,13 @@ public class WaitingGameState extends GameState {
 
         UHCPlayer uhcPlayer = game.getUHCPlayer(uuid);
         uhcPlayer.setState(PlayerState.ALIVE);
+
+        player.teleport(game.getWorldManager().getLobbyWorld().getSpawnLocation());
+    }
+
+    @EventHandler
+    public void onEntityDamage(EntityDamageEvent event) {
+        event.setCancelled(true);
     }
 
     @EventHandler

@@ -2,8 +2,10 @@ package cc.kasumi.uhc.game;
 
 import cc.kasumi.uhc.UHC;
 import cc.kasumi.uhc.barapi.BarAPI;
+import cc.kasumi.uhc.combatlog.CombatLogPlayer;
 import cc.kasumi.uhc.combatlog.CombatLogVillagerManager;
 import cc.kasumi.uhc.game.state.ActiveGameState;
+import cc.kasumi.uhc.game.state.GameEndedState;
 import cc.kasumi.uhc.game.state.ScatteringGameState;
 import cc.kasumi.uhc.game.state.WaitingGameState;
 import cc.kasumi.uhc.game.task.*;
@@ -140,17 +142,87 @@ public class Game {
         newState.onEnable();
     }
 
+    // Update the isValidTransition method in Game.java
+
     private boolean isValidTransition(GameState from, GameState to) {
+        // Allow transition from WaitingGameState to ScatteringGameState
         if (from instanceof WaitingGameState) {
             return to instanceof ScatteringGameState;
         }
+
+        // Allow transition from ScatteringGameState to ActiveGameState
         if (from instanceof ScatteringGameState) {
             return to instanceof ActiveGameState;
         }
+
+        // Allow transition from ActiveGameState to GameEndedState (THIS WAS MISSING!)
         if (from instanceof ActiveGameState) {
-            return false; // Game is over, no transitions allowed
+            return to instanceof GameEndedState;
         }
+
+        // GameEndedState is terminal - no transitions allowed from it
+        if (from instanceof GameEndedState) {
+            return false;
+        }
+
+        // Default: no transition allowed
         return false;
+    }
+
+    // Also need to update the endGame method to be more robust
+    public void endGame(GameEndResult result) {
+        UHC.getInstance().getLogger().info("Game ending: " + result.getReason());
+
+        try {
+            // Set game state to ended - but handle the case where GameEndedState doesn't exist yet
+            Class<?> gameEndedStateClass;
+            try {
+                gameEndedStateClass = Class.forName("cc.kasumi.uhc.game.state.GameEndedState");
+                Object gameEndedState = gameEndedStateClass.getConstructor(Game.class, GameEndResult.class).newInstance(this, result);
+                setGameState((GameState) gameEndedState);
+            } catch (ClassNotFoundException e) {
+                // GameEndedState doesn't exist yet, just log that game ended
+                UHC.getInstance().getLogger().info("GameEndedState class not found - game ended without state transition");
+            }
+
+            // Cancel all game tasks
+            Bukkit.getScheduler().cancelTasks(UHC.getInstance());
+
+            // Cancel wall builders
+            GameUtil.cancelAllWallBuilders();
+
+            // Stop bar API
+            if (barAPI != null) {
+                barAPI.onDisable();
+            }
+
+            // Announce results
+            announceGameResults(result);
+
+            // Handle post-game actions after delay
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    handlePostGameActions(result);
+                }
+            }.runTaskLater(UHC.getInstance(), 100L); // 5 second delay
+
+        } catch (Exception e) {
+            UHC.getInstance().getLogger().severe("Error during game end: " + e.getMessage());
+            e.printStackTrace();
+
+            // Fallback - at least do cleanup
+            try {
+                Bukkit.getScheduler().cancelTasks(UHC.getInstance());
+                GameUtil.cancelAllWallBuilders();
+                if (barAPI != null) {
+                    barAPI.onDisable();
+                }
+                announceGameResults(result);
+            } catch (Exception fallbackError) {
+                UHC.getInstance().getLogger().severe("Critical error during game end fallback: " + fallbackError.getMessage());
+            }
+        }
     }
 
     public void gameStartRunnable(int time) {
@@ -310,8 +382,10 @@ public class Game {
         UHC.getInstance().getLogger().info("World border set to size: " + borderSize + " in world: " + world.getName());
     }
 
+    // Update the startScattering() method in Game.java
+
     /**
-     * Start scattering using unified system
+     * Start scattering using improved system with better error handling
      */
     public void startScattering() {
         if (!isWorldReady()) {
@@ -352,35 +426,227 @@ public class Game {
             return;
         }
 
+        // Validate scatter conditions before starting
+        if (!validateScatterConditions(teamsWithPlayers)) {
+            UHC.getInstance().getLogger().warning("Scatter conditions not optimal, but proceeding anyway...");
+        }
+
         Bukkit.broadcastMessage(ChatColor.GREEN + "Starting scatter for " + teamsWithPlayers +
                 " teams in world: " + worldName);
 
+        // Use improved scatter manager
         ProgressiveScatterManager scatterManager = new ProgressiveScatterManager(this, initialBorderSize);
         scatterManager.startScattering();
+
+        // Schedule a backup check in case scatter gets stuck
+        scheduleScatterBackupCheck(scatterManager);
     }
 
     /**
-     * Ensure all online players are on teams
-     * Create solo teams for players not on teams
+     * Validate conditions for successful scattering
+     */
+    private boolean validateScatterConditions(int teamCount) {
+        World world = getWorld();
+        WorldBorder border = world.getWorldBorder();
+
+        // Check if border is large enough
+        double borderRadius = border.getSize() / 2;
+        int effectiveRadius = (int)(borderRadius - 80); // Safety buffer
+
+        if (effectiveRadius < 150) {
+            UHC.getInstance().getLogger().warning("Border very small for scattering (radius: " + effectiveRadius + ")");
+            Bukkit.broadcastMessage(ChatColor.YELLOW + "Warning: Small border may cause scatter issues");
+            return false;
+        }
+
+        // Estimate if we can fit all teams
+        double borderArea = Math.PI * Math.pow(effectiveRadius, 2);
+        double teamArea = Math.PI * Math.pow(100, 2); // 100 block min distance
+        int theoreticalMaxTeams = (int)(borderArea / teamArea);
+
+        if (teamCount > theoreticalMaxTeams) {
+            UHC.getInstance().getLogger().warning("Too many teams for border size! (" + teamCount +
+                    " teams, max ~" + theoreticalMaxTeams + ")");
+            Bukkit.broadcastMessage(ChatColor.YELLOW + "Warning: Many teams for current border - some may not scatter optimally");
+            return false;
+        }
+
+        // Check world generation
+        if (world.getLoadedChunks().length < 100) {
+            UHC.getInstance().getLogger().warning("Very few chunks loaded - may affect scatter performance");
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Schedule a backup check for scatter completion
+     */
+    private void scheduleScatterBackupCheck(ProgressiveScatterManager scatterManager) {
+        new BukkitRunnable() {
+            private int checks = 0;
+            private final int maxChecks = 60; // 5 minutes max
+
+            @Override
+            public void run() {
+                checks++;
+
+                if (scatterManager.isCancelled()) {
+                    // Scatter completed or cancelled
+                    cancel();
+                    return;
+                }
+
+                if (checks >= maxChecks) {
+                    // Timeout - force start game
+                    UHC.getInstance().getLogger().severe("Scatter timeout reached! Force starting game...");
+                    Bukkit.broadcastMessage(ChatColor.RED + "Scatter timeout - starting game at spawn!");
+
+                    scatterManager.cancel();
+
+                    // Start game anyway
+                    new BukkitRunnable() {
+                        @Override
+                        public void run() {
+                            startGame();
+                        }
+                    }.runTaskLater(UHC.getInstance(), 20L);
+
+                    cancel();
+                    return;
+                }
+
+                // Log progress every 30 seconds
+                if (checks % 30 == 0) {
+                    double progress = scatterManager.getProgress();
+                    UHC.getInstance().getLogger().info("Scatter progress: " + String.format("%.1f", progress) +
+                            "% (phase: " + scatterManager.getCurrentPhase() + ")");
+
+                    if (progress < 10) {
+                        Bukkit.broadcastMessage(ChatColor.YELLOW + "Scatter in progress, please wait...");
+                    }
+                }
+            }
+        }.runTaskTimer(UHC.getInstance(), 100L, 20L); // Start after 5 seconds, check every second
+    }
+
+    /**
+     * Enhanced method to ensure all players are on teams with better logging
      */
     private void ensureAllPlayersOnTeams() {
         int soloTeamsCreated = 0;
+        int playersAlreadyOnTeams = 0;
 
         for (Player player : Bukkit.getOnlinePlayers()) {
             if (!teamManager.isPlayerOnTeam(player.getUniqueId())) {
                 // Create a solo team for this player
-                String teamName = player.getName() + "'s Team";
+                String teamName = isSoloMode() ? player.getName() : player.getName() + "'s Team";
                 UHCTeam soloTeam = teamManager.createTeam(teamName);
                 if (soloTeam != null) {
                     teamManager.addPlayerToTeam(player.getUniqueId(), soloTeam.getTeamId());
                     soloTeamsCreated++;
+                    UHC.getInstance().getLogger().info("Created team for unassigned player: " + player.getName());
+                } else {
+                    UHC.getInstance().getLogger().warning("Failed to create team for player: " + player.getName());
                 }
+            } else {
+                playersAlreadyOnTeams++;
             }
         }
 
         if (soloTeamsCreated > 0) {
-            UHC.getInstance().getLogger().info("Created " + soloTeamsCreated + " solo teams for unassigned players");
+            UHC.getInstance().getLogger().info("Created " + soloTeamsCreated + " teams for unassigned players");
         }
+
+        if (playersAlreadyOnTeams > 0) {
+            UHC.getInstance().getLogger().info(playersAlreadyOnTeams + " players were already on teams");
+        }
+
+        // Log final team distribution
+        Collection<UHCTeam> allTeams = teamManager.getAllTeams();
+        int teamsWithPlayers = 0;
+        int totalPlayersOnTeams = 0;
+
+        for (UHCTeam team : allTeams) {
+            if (!team.getOnlineMembers().isEmpty()) {
+                teamsWithPlayers++;
+                totalPlayersOnTeams += team.getOnlineMembers().size();
+            }
+        }
+
+        UHC.getInstance().getLogger().info("Team assignment complete: " + teamsWithPlayers +
+                " teams with " + totalPlayersOnTeams + " total players");
+    }
+
+    // Add this method to provide scatter statistics after completion
+    public void onScatterCompleted(ProgressiveScatterManager.ScatterStatistics stats) {
+        UHC.getInstance().getLogger().info("=== Scatter Statistics ===");
+        UHC.getInstance().getLogger().info("Successful teams: " + stats.successfulTeams);
+        UHC.getInstance().getLogger().info("Failed teams: " + stats.failedTeams);
+        UHC.getInstance().getLogger().info("Total attempts: " + stats.totalAttempts);
+        UHC.getInstance().getLogger().info("Used radius: " + stats.usedRadius);
+        UHC.getInstance().getLogger().info("Min distance between teams: " + stats.minDistanceBetweenTeams);
+
+        if (stats.failedTeams > 0) {
+            UHC.getInstance().getLogger().info("Most common failure: " + stats.mostCommonFailureReason);
+        }
+
+        UHC.getInstance().getLogger().info("========================");
+    }
+
+    /**
+     * Emergency scatter fallback - teleport all teams to spawn area with offsets
+     */
+    public void emergencyScatterFallback() {
+        UHC.getInstance().getLogger().warning("Using emergency scatter fallback!");
+
+        World world = getWorld();
+        if (world == null) {
+            UHC.getInstance().getLogger().severe("Cannot perform emergency scatter - world is null!");
+            return;
+        }
+
+        Location spawn = world.getSpawnLocation();
+        Random random = new Random();
+        int teamIndex = 0;
+
+        for (UHCTeam team : teamManager.getAllTeams()) {
+            if (team.getOnlineMembers().isEmpty()) {
+                continue;
+            }
+
+            // Create offset location based on team index
+            double angle = (teamIndex * 45) * Math.PI / 180; // 8 directions
+            double distance = 50 + (teamIndex * 20); // Increasing distance
+
+            int x = (int) (spawn.getX() + distance * Math.cos(angle));
+            int z = (int) (spawn.getZ() + distance * Math.sin(angle));
+
+            Location teamLocation = new Location(world, x + 0.5, 0, z + 0.5);
+            int groundY = world.getHighestBlockYAt(teamLocation);
+            teamLocation.setY(groundY + 1);
+
+            // Ensure area is safe
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    for (int dy = 0; dy <= 2; dy++) {
+                        world.getBlockAt(x + dx, groundY + dy, z + dz).setType(Material.AIR);
+                    }
+                }
+            }
+            world.getBlockAt(x, groundY - 1, z).setType(Material.STONE);
+
+            // Teleport team members
+            for (Player player : team.getOnlineMembers()) {
+                player.teleport(teamLocation);
+                player.sendMessage(ChatColor.YELLOW + "Emergency scatter - you have been placed near spawn!");
+            }
+
+            teamIndex++;
+        }
+
+        Bukkit.broadcastMessage(ChatColor.YELLOW + "Emergency scatter completed - all teams placed near spawn!");
     }
 
     /**
@@ -752,6 +1018,373 @@ public class Game {
         } else {
             // Use team manager's auto-assign feature
             teamManager.autoAssignTeams(playersWithoutTeams, maxTeamSize);
+        }
+    }
+
+    // Add to Game.java class
+
+    /**
+     * Check if the game should end based on remaining players/teams
+     * Called after player deaths or eliminations
+     */
+    /**
+     * Check if the game should end based on remaining players/teams
+     * Called after player deaths or eliminations
+     * Enhanced with better error handling
+     */
+    public void checkGameEndCondition() {
+        try {
+            if (!isGameStarted()) {
+                return; // Game hasn't started yet
+            }
+
+            if (!(state instanceof ActiveGameState)) {
+                return; // Game is not in active state
+            }
+
+            GameEndResult result = determineGameEndResult();
+
+            if (result.isShouldEndGame()) {
+                UHC.getInstance().getLogger().info("Game end condition met: " + result.getReason());
+                endGame(result);
+            }
+
+        } catch (Exception e) {
+            UHC.getInstance().getLogger().severe("Error checking game end condition: " + e.getMessage());
+            e.printStackTrace();
+
+            // Don't let this crash the game - just log the error
+            // The game will continue running if there's an error in end detection
+        }
+    }
+
+    /**
+     * Determine if the game should end and what the result should be
+     * Enhanced with better null checks and error handling
+     */
+    private GameEndResult determineGameEndResult() {
+        try {
+            if (isSoloMode()) {
+                return checkSoloGameEnd();
+            } else {
+                return checkTeamGameEnd();
+            }
+        } catch (Exception e) {
+            UHC.getInstance().getLogger().severe("Error determining game end result: " + e.getMessage());
+            e.printStackTrace();
+
+            // Return continue game as fallback
+            return GameEndResult.continueGame();
+        }
+    }
+
+    /**
+     * Check end conditions for solo mode
+     * Enhanced with better error handling
+     */
+    private GameEndResult checkSoloGameEnd() {
+        try {
+            List<UHCPlayer> alivePlayers = new ArrayList<>();
+
+            // Safely get alive players
+            for (UHCPlayer uhcPlayer : players.values()) {
+                if (uhcPlayer != null &&
+                        (uhcPlayer.getState() == PlayerState.ALIVE || uhcPlayer.getState() == PlayerState.COMBAT_LOG)) {
+                    alivePlayers.add(uhcPlayer);
+                }
+            }
+
+            if (alivePlayers.isEmpty()) {
+                // No players left - draw
+                return GameEndResult.draw("No players remaining");
+            } else if (alivePlayers.size() == 1) {
+                // One player left - winner
+                UHCPlayer winner = alivePlayers.get(0);
+                return GameEndResult.soloWin(winner, "Last player standing");
+            }
+
+            // Game continues
+            return GameEndResult.continueGame();
+
+        } catch (Exception e) {
+            UHC.getInstance().getLogger().severe("Error in solo game end check: " + e.getMessage());
+            e.printStackTrace();
+            return GameEndResult.continueGame();
+        }
+    }
+
+    /**
+     * Check end conditions for team mode
+     * Enhanced with better error handling
+     */
+    private GameEndResult checkTeamGameEnd() {
+        try {
+            if (teamManager == null) {
+                UHC.getInstance().getLogger().warning("TeamManager is null during game end check!");
+                return GameEndResult.continueGame();
+            }
+
+            List<UHCTeam> aliveTeams = teamManager.getAliveTeams();
+
+            if (aliveTeams == null) {
+                UHC.getInstance().getLogger().warning("getAliveTeams() returned null!");
+                return GameEndResult.continueGame();
+            }
+
+            if (aliveTeams.isEmpty()) {
+                // No teams left - draw
+                return GameEndResult.draw("No teams remaining");
+            } else if (aliveTeams.size() == 1) {
+                // One team left - winner
+                UHCTeam winnerTeam = aliveTeams.get(0);
+                return GameEndResult.teamWin(winnerTeam, "Last team standing");
+            }
+
+            // Game continues
+            return GameEndResult.continueGame();
+
+        } catch (Exception e) {
+            UHC.getInstance().getLogger().severe("Error in team game end check: " + e.getMessage());
+            e.printStackTrace();
+            return GameEndResult.continueGame();
+        }
+    }
+
+    /**
+     * Announce game results to all players
+     */
+    private void announceGameResults(GameEndResult result) {
+        String announcement = formatGameEndAnnouncement(result);
+
+        // Broadcast to all players
+        Bukkit.broadcastMessage("");
+        Bukkit.broadcastMessage(ChatColor.GOLD + "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬");
+        Bukkit.broadcastMessage(ChatColor.YELLOW + "                        GAME OVER");
+        Bukkit.broadcastMessage("");
+        Bukkit.broadcastMessage(announcement);
+        Bukkit.broadcastMessage("");
+        Bukkit.broadcastMessage(ChatColor.GRAY + "Game Duration: " + getFormattedGameDuration());
+
+        if (result.getWinnerType() == GameEndResult.WinnerType.SOLO) {
+            UHCPlayer winner = result.getSoloWinner();
+            if (winner != null) {
+                Bukkit.broadcastMessage(ChatColor.GRAY + "Kills: " + winner.getKills());
+            }
+        } else if (result.getWinnerType() == GameEndResult.WinnerType.TEAM) {
+            UHCTeam winnerTeam = result.getTeamWinner();
+            if (winnerTeam != null) {
+                int totalKills = winnerTeam.getMembers().stream()
+                        .mapToInt(uuid -> {
+                            UHCPlayer player = getUHCPlayer(uuid);
+                            return player != null ? player.getKills() : 0;
+                        })
+                        .sum();
+                Bukkit.broadcastMessage(ChatColor.GRAY + "Team Kills: " + totalKills);
+                Bukkit.broadcastMessage(ChatColor.GRAY + "Team Members: " + winnerTeam.getFormattedMemberList());
+            }
+        }
+
+        Bukkit.broadcastMessage(ChatColor.GOLD + "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬");
+        Bukkit.broadcastMessage("");
+
+        // Send title to all players
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            sendTitleToPlayer(player, result);
+        }
+    }
+
+    /**
+     * Format the game end announcement based on result type
+     */
+    private String formatGameEndAnnouncement(GameEndResult result) {
+        switch (result.getWinnerType()) {
+            case SOLO:
+                UHCPlayer winner = result.getSoloWinner();
+                String winnerName = winner != null && winner.getPlayer() != null ?
+                        winner.getPlayer().getName() : "Unknown";
+                return ChatColor.GREEN + "Winner: " + ChatColor.YELLOW + winnerName;
+
+            case TEAM:
+                UHCTeam winnerTeam = result.getTeamWinner();
+                if (winnerTeam != null) {
+                    return ChatColor.GREEN + "Winning Team: " + winnerTeam.getFormattedName();
+                }
+                return ChatColor.GREEN + "Team Victory!";
+
+            case DRAW:
+                return ChatColor.YELLOW + "Game ended in a draw - " + result.getReason();
+
+            default:
+                return ChatColor.RED + "Game ended unexpectedly";
+        }
+    }
+
+    /**
+     * Send title to a specific player based on game result
+     */
+    private void sendTitleToPlayer(Player player, GameEndResult result) {
+        String title = "";
+        String subtitle = "";
+        ChatColor titleColor = ChatColor.YELLOW;
+
+        switch (result.getWinnerType()) {
+            case SOLO:
+                UHCPlayer winner = result.getSoloWinner();
+                if (winner != null && winner.getUuid().equals(player.getUniqueId())) {
+                    title = ChatColor.GOLD + "VICTORY!";
+                    subtitle = ChatColor.YELLOW + "You won the UHC!";
+                    titleColor = ChatColor.GOLD;
+                } else {
+                    title = ChatColor.RED + "GAME OVER";
+                    String winnerName = winner != null && winner.getPlayer() != null ?
+                            winner.getPlayer().getName() : "Unknown";
+                    subtitle = ChatColor.GRAY + winnerName + " won the game";
+                    titleColor = ChatColor.RED;
+                }
+                break;
+
+            case TEAM:
+                UHCTeam winnerTeam = result.getTeamWinner();
+                UHCTeam playerTeam = teamManager.getPlayerTeam(player.getUniqueId());
+
+                if (winnerTeam != null && winnerTeam.equals(playerTeam)) {
+                    title = ChatColor.GOLD + "VICTORY!";
+                    subtitle = ChatColor.YELLOW + "Your team won!";
+                    titleColor = ChatColor.GOLD;
+                } else {
+                    title = ChatColor.RED + "GAME OVER";
+                    subtitle = winnerTeam != null ?
+                            ChatColor.GRAY + winnerTeam.getTeamName() + " won the game" :
+                            ChatColor.GRAY + "Another team won";
+                    titleColor = ChatColor.RED;
+                }
+                break;
+
+            case DRAW:
+                title = ChatColor.YELLOW + "DRAW";
+                subtitle = ChatColor.GRAY + result.getReason();
+                break;
+        }
+
+        // Send title using 1.8.8 compatible method
+        try {
+            // Simple message approach for 1.8.8
+            player.sendMessage(title);
+            player.sendMessage(subtitle);
+        } catch (Exception e) {
+            // Fallback to just chat messages
+            player.sendMessage(title + " - " + subtitle);
+        }
+    }
+
+    /**
+     * Handle actions after the game has ended
+     */
+    private void handlePostGameActions(GameEndResult result) {
+        // Teleport all players to lobby
+        teleportAllPlayersToLobby();
+
+        // Reset world if configured
+        if (worldManager.shouldAutoResetWorld()) {
+            UHC.getInstance().getLogger().info("Auto-resetting world for next game...");
+            resetWorldForNewGame();
+        }
+
+        // Log game statistics
+        logGameStatistics(result);
+
+        // Cleanup
+        cleanupGameResources();
+    }
+
+    /**
+     * Log detailed game statistics
+     */
+    private void logGameStatistics(GameEndResult result) {
+        UHC.getInstance().getLogger().info("=== GAME STATISTICS ===");
+        UHC.getInstance().getLogger().info("Duration: " + getFormattedGameDuration());
+        UHC.getInstance().getLogger().info("Total Players: " + players.size());
+
+        if (isSoloMode()) {
+            UHC.getInstance().getLogger().info("Game Mode: Solo");
+            UHC.getInstance().getLogger().info("Teams: " + teamManager.getAllTeams().size());
+        } else {
+            UHC.getInstance().getLogger().info("Game Mode: Teams (max size " + maxTeamSize + ")");
+            UHC.getInstance().getLogger().info("Teams: " + teamManager.getAllTeams().size());
+            UHC.getInstance().getLogger().info("Alive Teams at End: " + teamManager.getAliveTeams().size());
+        }
+
+        UHC.getInstance().getLogger().info("Result: " + result.getWinnerType() + " - " + result.getReason());
+        UHC.getInstance().getLogger().info("Border Final Size: " + currentBorderSize);
+        UHC.getInstance().getLogger().info("PvP Time: " + pvpTime + "s");
+        UHC.getInstance().getLogger().info("=========================");
+    }
+
+    /**
+     * Cleanup game resources
+     */
+    private void cleanupGameResources() {
+        // Clean up combat log villagers
+        if (combatLogVillagerManager != null) {
+            // Remove any remaining villagers
+            for (Map.Entry<org.bukkit.entity.Villager, CombatLogPlayer> entry :
+                    combatLogVillagerManager.getCombatLogVillagers().entrySet()) {
+                entry.getKey().remove();
+            }
+        }
+
+        // Cancel any remaining tasks
+        GameUtil.cancelAllWallBuilders();
+
+        UHC.getInstance().getLogger().info("Game resources cleaned up");
+    }
+
+    /**
+     * Get game statistics for external use
+     */
+    public GameStatistics getGameStatistics() {
+        return new GameStatistics(
+                getFormattedGameDuration(),
+                getGameDurationSeconds(),
+                players.size(),
+                teamManager.getAllTeams().size(),
+                teamManager.getAliveTeams().size(),
+                currentBorderSize,
+                initialBorderSize,
+                isPvpEnabled(),
+                isSoloMode() ? "Solo" : "Teams (" + maxTeamSize + ")",
+                worldName
+        );
+    }
+
+    /**
+     * Game statistics holder
+     */
+    public static class GameStatistics {
+        public final String formattedDuration;
+        public final long durationSeconds;
+        public final int totalPlayers;
+        public final int totalTeams;
+        public final int aliveTeams;
+        public final int currentBorderSize;
+        public final int initialBorderSize;
+        public final boolean pvpEnabled;
+        public final String gameMode;
+        public final String worldName;
+
+        public GameStatistics(String formattedDuration, long durationSeconds, int totalPlayers,
+                              int totalTeams, int aliveTeams, int currentBorderSize,
+                              int initialBorderSize, boolean pvpEnabled, String gameMode, String worldName) {
+            this.formattedDuration = formattedDuration;
+            this.durationSeconds = durationSeconds;
+            this.totalPlayers = totalPlayers;
+            this.totalTeams = totalTeams;
+            this.aliveTeams = aliveTeams;
+            this.currentBorderSize = currentBorderSize;
+            this.initialBorderSize = initialBorderSize;
+            this.pvpEnabled = pvpEnabled;
+            this.gameMode = gameMode;
+            this.worldName = worldName;
         }
     }
 }

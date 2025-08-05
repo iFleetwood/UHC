@@ -11,6 +11,7 @@ import cc.kasumi.uhc.player.UHCPlayer;
 import cc.kasumi.uhc.scenario.ScenarioManager;
 import cc.kasumi.uhc.util.PlayerUtil;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -35,7 +36,7 @@ public class ActiveGameState extends GameState {
     public void onEnable() {
         UHC uhc = UHC.getInstance();
 
-        Bukkit.getPluginManager().registerEvents(this, uhc);
+        super.onEnable();
 
         scenarioManager.registerAllListeners();
         combatLogVillagerManager.setPositionCheckTask(
@@ -45,7 +46,7 @@ public class ActiveGameState extends GameState {
 
     @Override
     public void onDisable() {
-        HandlerList.unregisterAll(this);
+        super.onDisable();
         scenarioManager.unregisterAllListeners();
 
         if (combatLogVillagerManager.getPositionCheckTask() != null) {
@@ -104,34 +105,149 @@ public class ActiveGameState extends GameState {
         combatLogVillagerManager.spawnCombatLogVillager(uuid, player);
     }
 
-    @EventHandler
-    public void onEntityDeath(EntityDeathEvent event) {
-        if (!(event.getEntity() instanceof Villager villager)) {
-            return;
-        }
+    // Updated ActiveGameState.java with game end checks
 
-        if (!combatLogVillagerManager.isControlledVillager(villager)) {
-            return;
-        }
-
-        CombatLogPlayer combatLogPlayer = combatLogVillagerManager.getCombatLogPlayer(villager);
-        UUID playerUUID = combatLogPlayer.getUuid();
-
-        combatLogVillagerManager.killCombatLogVillager(villager, combatLogPlayer);
-        game.removePlayer(playerUUID);
-    }
+    // Update the event handlers in ActiveGameState.java to be safer
 
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
-        Player player = event.getEntity();
-        UUID uuid = player.getUniqueId();
+        try {
+            Player player = event.getEntity();
+            UUID uuid = player.getUniqueId();
 
-        if (!game.containsUHCPlayer(uuid)) {
-            return;
+            if (!game.containsUHCPlayer(uuid)) {
+                return;
+            }
+
+            UHCPlayer uhcPlayer = game.getUHCPlayer(uuid);
+            if (uhcPlayer == null) {
+                UHC.getInstance().getLogger().warning("UHCPlayer was null for " + player.getName() + " during death event");
+                return;
+            }
+
+            uhcPlayer.setPlayerStateAndManage(PlayerState.SPECTATING);
+
+            // Handle team elimination
+            if (game.getTeamManager() != null) {
+                game.getTeamManager().handlePlayerDeath(uuid);
+            }
+
+            // Announce death
+            announcePlayerDeath(player, event);
+
+            // CHECK FOR GAME END - wrapped in try-catch
+            try {
+                game.checkGameEndCondition();
+            } catch (Exception endCheckError) {
+                UHC.getInstance().getLogger().severe("Error checking game end after player death: " + endCheckError.getMessage());
+                endCheckError.printStackTrace();
+                // Don't re-throw - let the death event complete normally
+            }
+
+        } catch (Exception e) {
+            UHC.getInstance().getLogger().severe("Error handling player death event: " + e.getMessage());
+            e.printStackTrace();
+            // Don't re-throw to prevent the original error from cascading
         }
+    }
 
-        UHCPlayer uhcPlayer = game.getUHCPlayer(uuid);
-        uhcPlayer.setPlayerStateAndManage(PlayerState.SPECTATING);
+    @EventHandler
+    public void onEntityDeath(EntityDeathEvent event) {
+        try {
+            if (!(event.getEntity() instanceof Villager villager)) {
+                return;
+            }
+
+            if (!combatLogVillagerManager.isControlledVillager(villager)) {
+                return;
+            }
+
+            CombatLogPlayer combatLogPlayer = combatLogVillagerManager.getCombatLogPlayer(villager);
+            if (combatLogPlayer == null) {
+                UHC.getInstance().getLogger().warning("CombatLogPlayer was null for villager death");
+                return;
+            }
+
+            UUID playerUUID = combatLogPlayer.getUuid();
+
+            combatLogVillagerManager.killCombatLogVillager(villager, combatLogPlayer);
+
+            // Handle team elimination
+            if (game.getTeamManager() != null) {
+                game.getTeamManager().handlePlayerDeath(playerUUID);
+            }
+
+            game.removePlayer(playerUUID);
+
+            // CHECK FOR GAME END - wrapped in try-catch
+            try {
+                game.checkGameEndCondition();
+            } catch (Exception endCheckError) {
+                UHC.getInstance().getLogger().severe("Error checking game end after villager death: " + endCheckError.getMessage());
+                endCheckError.printStackTrace();
+                // Don't re-throw - let the death event complete normally
+            }
+
+        } catch (Exception e) {
+            UHC.getInstance().getLogger().severe("Error handling entity death event: " + e.getMessage());
+            e.printStackTrace();
+            // Don't re-throw to prevent the original error from cascading
+        }
+    }
+
+    /**
+     * Announce player death with context - enhanced with error handling
+     */
+    private void announcePlayerDeath(Player player, PlayerDeathEvent event) {
+        try {
+            String deathMessage = event.getDeathMessage();
+
+            if (deathMessage == null || deathMessage.isEmpty()) {
+                deathMessage = player.getName() + " died";
+            }
+
+            // Get remaining players/teams info safely
+            int remainingPlayers = 0;
+            int remainingTeams = 0;
+
+            try {
+                remainingPlayers = game.getAlivePlayers().size();
+                if (game.getTeamManager() != null) {
+                    remainingTeams = game.getTeamManager().getAliveTeams().size();
+                }
+            } catch (Exception e) {
+                UHC.getInstance().getLogger().warning("Error getting remaining player/team counts: " + e.getMessage());
+                // Continue with 0 values
+            }
+
+            // Broadcast death with remaining count
+            Bukkit.broadcastMessage(ChatColor.RED + deathMessage);
+
+            if (game.isSoloMode()) {
+                if (remainingPlayers > 1) {
+                    Bukkit.broadcastMessage(ChatColor.GRAY + "Remaining: " + remainingPlayers + " players");
+                } else if (remainingPlayers == 1) {
+                    Bukkit.broadcastMessage(ChatColor.YELLOW + "Only 1 player remains!");
+                }
+            } else {
+                if (remainingTeams > 1) {
+                    Bukkit.broadcastMessage(ChatColor.GRAY + "Remaining: " + remainingTeams + " teams (" + remainingPlayers + " players)");
+                } else if (remainingTeams == 1) {
+                    Bukkit.broadcastMessage(ChatColor.YELLOW + "Only 1 team remains!");
+                }
+            }
+
+        } catch (Exception e) {
+            UHC.getInstance().getLogger().severe("Error announcing player death: " + e.getMessage());
+            e.printStackTrace();
+
+            // Fallback announcement
+            try {
+                Bukkit.broadcastMessage(ChatColor.RED + player.getName() + " died");
+            } catch (Exception fallbackError) {
+                UHC.getInstance().getLogger().severe("Even fallback death announcement failed: " + fallbackError.getMessage());
+            }
+        }
     }
 
     @EventHandler

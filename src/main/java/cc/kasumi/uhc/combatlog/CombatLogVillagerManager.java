@@ -21,7 +21,7 @@ import java.util.*;
 public class CombatLogVillagerManager {
 
     private static final int COMBAT_LOG_TIMEOUT_SECONDS = 180; // 3 minutes
-    private static final double VILLAGER_HEALTH = 20.0D;
+    private static final double VILLAGER_MAX_HEALTH = 20.0D;
 
     private final Map<Villager, CombatLogPlayer> combatLogVillagers = new HashMap<>();
     private final Set<Chunk> combatLogVillagerChunks = new HashSet<>();
@@ -153,7 +153,7 @@ public class CombatLogVillagerManager {
         World world = location.getWorld();
         Villager villager = (Villager) world.spawnEntity(location, EntityType.VILLAGER);
 
-        villager.setHealth(VILLAGER_HEALTH);
+        villager.setHealth(VILLAGER_MAX_HEALTH);
         villager.setProfession(Villager.Profession.FARMER);
 
         return villager;
@@ -161,7 +161,7 @@ public class CombatLogVillagerManager {
 
     public void updateVillagerHealthBar(Villager villager, CombatLogPlayer combatLogPlayer, double currentHealth) {
         int current = (int) Math.ceil(currentHealth);
-        int max = (int) VILLAGER_HEALTH;
+        int max = (int) VILLAGER_MAX_HEALTH;
 
         villager.setCustomName(ChatColor.GRAY + Bukkit.getOfflinePlayer(combatLogPlayer.getUuid()).getName() +
                 ChatColor.DARK_RED + " ❤" + ChatColor.RED + current + ChatColor.GRAY + "/" + ChatColor.RED + max);

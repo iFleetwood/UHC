@@ -6,6 +6,7 @@ import cc.kasumi.uhc.team.UHCTeam;
 import co.aikar.commands.BaseCommand;
 import co.aikar.commands.annotation.*;
 import co.aikar.commands.annotation.Optional;
+import co.aikar.commands.bukkit.contexts.OnlinePlayer;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
@@ -94,7 +95,7 @@ public class TeamCommand extends BaseCommand {
     @Subcommand("invite")
     @Description("Invite a player to your team")
     @CommandPermission("uhc.team.invite")
-    public void onInvite(Player sender, Player target) {
+    public void onInvite(Player sender, OnlinePlayer onlineTarget) {
         TeamManager teamManager = UHC.getInstance().getGame().getTeamManager();
 
         UHCTeam senderTeam = teamManager.getPlayerTeam(sender.getUniqueId());
@@ -107,6 +108,8 @@ public class TeamCommand extends BaseCommand {
             sender.sendMessage(ChatColor.RED + "Only team leaders can invite players!");
             return;
         }
+
+        Player target = onlineTarget.getPlayer();
 
         if (teamManager.isPlayerOnTeam(target.getUniqueId())) {
             sender.sendMessage(ChatColor.RED + target.getName() + " is already on a team!");
@@ -148,7 +151,7 @@ public class TeamCommand extends BaseCommand {
     @Subcommand("kick")
     @Description("Kick a player from your team")
     @CommandPermission("uhc.team.kick")
-    public void onKick(Player sender, Player target) {
+    public void onKick(Player sender, OnlinePlayer onlineTarget) {
         TeamManager teamManager = UHC.getInstance().getGame().getTeamManager();
 
         UHCTeam senderTeam = teamManager.getPlayerTeam(sender.getUniqueId());
@@ -161,6 +164,8 @@ public class TeamCommand extends BaseCommand {
             sender.sendMessage(ChatColor.RED + "Only team leaders can kick players!");
             return;
         }
+
+        Player target = onlineTarget.getPlayer();
 
         if (!senderTeam.isMember(target.getUniqueId())) {
             sender.sendMessage(ChatColor.RED + target.getName() + " is not on your team!");

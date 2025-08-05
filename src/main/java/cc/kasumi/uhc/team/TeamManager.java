@@ -2,6 +2,9 @@ package cc.kasumi.uhc.team;
 
 import cc.kasumi.uhc.UHC;
 import cc.kasumi.uhc.game.Game;
+import cc.kasumi.uhc.game.state.ActiveGameState;
+import cc.kasumi.uhc.player.PlayerState;
+import cc.kasumi.uhc.player.UHCPlayer;
 import lombok.Getter;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -248,35 +251,6 @@ public class TeamManager {
     }
 
     /**
-     * Handle player death - mark as eliminated
-     */
-    public void handlePlayerDeath(UUID playerUuid) {
-        UHCTeam team = getPlayerTeam(playerUuid);
-        if (team != null) {
-            team.eliminatePlayer(playerUuid);
-
-            Player player = Bukkit.getPlayer(playerUuid);
-            String playerName = player != null ? player.getName() : "Unknown";
-
-            if (team.isEliminated()) {
-                // Entire team eliminated
-                if (game.isTeamMode()) {
-                    Bukkit.broadcastMessage(team.getFormattedName() + ChatColor.RED + " has been eliminated!");
-                    team.sendMessage("Your team has been eliminated!");
-                } else {
-                    // Solo mode - just announce player elimination
-                    Bukkit.broadcastMessage(ChatColor.RED + playerName + " has been eliminated!");
-                }
-            } else {
-                // Just this player eliminated (team mode only)
-                if (game.isTeamMode()) {
-                    team.sendMessage(ChatColor.RED + playerName + " has been eliminated!");
-                }
-            }
-        }
-    }
-
-    /**
      * Handle player respawn - mark as alive
      */
     public void handlePlayerRespawn(UUID playerUuid) {
@@ -434,5 +408,286 @@ public class TeamManager {
         public double averageTeamSize = 0.0;
         public int largestTeamSize = 0;
         public int smallestTeamSize = 0;
+    }
+
+    // Add to TeamManager.java class
+
+    /**
+     * Handle player death - mark as eliminated and announce if needed
+     * Enhanced version that provides better death messaging
+     */
+    public void handlePlayerDeath(UUID playerUuid) {
+        UHCTeam team = getPlayerTeam(playerUuid);
+        if (team == null) {
+            return;
+        }
+
+        team.eliminatePlayer(playerUuid);
+
+        Player player = Bukkit.getPlayer(playerUuid);
+        String playerName = player != null ? player.getName() : "Unknown";
+
+        // Update kills for the killer if applicable
+        if (player != null) {
+            handleKillCredit(player);
+        }
+
+        if (team.isEliminated()) {
+            // Entire team eliminated
+            handleTeamElimination(team, playerName);
+        } else {
+            // Just this player eliminated from team
+            if (game.isTeamMode() && team.getSize() > 1) {
+                team.sendMessage(ChatColor.RED + playerName + " has been eliminated!");
+
+                // Check if this was the team leader
+                if (team.getTeamLeader() != null && !team.getTeamLeader().equals(playerUuid)) {
+                    Player newLeader = team.getTeamLeaderPlayer();
+                    if (newLeader != null) {
+                        team.sendMessage(ChatColor.YELLOW + newLeader.getName() + " is now the team leader!");
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Handle complete team elimination
+     */
+    private void handleTeamElimination(UHCTeam team, String lastPlayerName) {
+        if (game.isTeamMode() && team.getSize() > 1) {
+            // Multi-player team eliminated
+            Bukkit.broadcastMessage(team.getFormattedName() + ChatColor.RED + " has been eliminated!");
+            team.sendMessage(ChatColor.RED + "Your team has been eliminated!");
+
+            // List team members for context
+            if (team.getSize() > 2) {
+                Bukkit.broadcastMessage(ChatColor.GRAY + "Team members: " + team.getFormattedMemberList());
+            }
+        } else {
+            // Solo team eliminated (already handled by death message)
+            // Just update internal state
+        }
+
+        UHC.getInstance().getLogger().info("Team eliminated: " + team.getTeamName() +
+                " (last player: " + lastPlayerName + ")");
+    }
+
+    /**
+     * Handle kill credit assignment
+     */
+    private void handleKillCredit(Player victim) {
+        // Check if victim was killed by another player
+        if (victim.getKiller() instanceof Player) {
+            Player killer = victim.getKiller();
+            UHCPlayer uhcKiller = game.getUHCPlayer(killer.getUniqueId());
+
+            if (uhcKiller != null) {
+                uhcKiller.addKill();
+
+                // Send kill confirmation to killer
+                killer.sendMessage(ChatColor.GREEN + "You killed " + victim.getName() +
+                        ChatColor.GRAY + " (Total kills: " + uhcKiller.getKills() + ")");
+
+                // Award kill in team context if applicable
+                if (game.isTeamMode()) {
+                    UHCTeam killerTeam = getPlayerTeam(killer.getUniqueId());
+                    if (killerTeam != null && killerTeam.getSize() > 1) {
+                        killerTeam.sendMessage(ChatColor.GREEN + killer.getName() +
+                                " killed " + victim.getName() + "!");
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Get elimination order for post-game statistics
+     */
+    public List<TeamEliminationRecord> getEliminationOrder() {
+        return new ArrayList<>(eliminationRecords);
+    }
+
+    /**
+     * Check if game should end based on team states
+     */
+    public boolean shouldGameEnd() {
+        List<UHCTeam> aliveTeams = getAliveTeams();
+
+        if (aliveTeams.isEmpty()) {
+            return true; // No teams left
+        }
+
+        if (aliveTeams.size() == 1) {
+            return true; // Only one team left
+        }
+
+        return false; // Multiple teams still alive
+    }
+
+    /**
+     * Get detailed team statistics for game end
+     */
+    public TeamEndGameStats getEndGameStats() {
+        List<UHCTeam> aliveTeams = getAliveTeams();
+        List<UHCTeam> eliminatedTeams = getEliminatedTeams();
+
+        int totalKills = 0;
+        int totalPlayers = 0;
+
+        for (UHCTeam team : getAllTeams()) {
+            totalPlayers += team.getSize();
+            for (UUID memberUuid : team.getMembers()) {
+                UHCPlayer player = game.getUHCPlayer(memberUuid);
+                if (player != null) {
+                    totalKills += player.getKills();
+                }
+            }
+        }
+
+        return new TeamEndGameStats(
+                aliveTeams.size(),
+                eliminatedTeams.size(),
+                totalPlayers,
+                totalKills,
+                aliveTeams,
+                eliminatedTeams
+        );
+    }
+
+    /**
+     * Force eliminate a team (admin command)
+     */
+    public boolean forceEliminateTeam(String teamName, String reason) {
+        UHCTeam team = getTeamByName(teamName);
+        if (team == null) {
+            return false;
+        }
+
+        // Eliminate all team members
+        for (UUID memberUuid : new ArrayList<>(team.getMembers())) {
+            team.eliminatePlayer(memberUuid);
+
+            // Set player to spectating if online
+            Player player = Bukkit.getPlayer(memberUuid);
+            if (player != null) {
+                UHCPlayer uhcPlayer = game.getUHCPlayer(memberUuid);
+                if (uhcPlayer != null) {
+                    uhcPlayer.setPlayerStateAndManage(PlayerState.SPECTATING);
+                }
+            }
+        }
+
+        // Announce elimination
+        Bukkit.broadcastMessage(team.getFormattedName() + ChatColor.RED + " has been eliminated by admin!");
+        Bukkit.broadcastMessage(ChatColor.GRAY + "Reason: " + reason);
+
+        // Check if game should end
+        game.checkGameEndCondition();
+
+        return true;
+    }
+
+    /**
+     * Revive a team (admin command - only works if game hasn't ended)
+     */
+    public boolean reviveTeam(String teamName) {
+        UHCTeam team = getTeamByName(teamName);
+        if (team == null) {
+            return false;
+        }
+
+        if (!(game.getState() instanceof ActiveGameState)) {
+            return false; // Can't revive after game end
+        }
+
+        // Revive all team members who are online
+        int revivedCount = 0;
+        for (UUID memberUuid : team.getMembers()) {
+            Player player = Bukkit.getPlayer(memberUuid);
+            if (player != null) {
+                team.revivePlayer(memberUuid);
+
+                UHCPlayer uhcPlayer = game.getUHCPlayer(memberUuid);
+                if (uhcPlayer != null) {
+                    uhcPlayer.setPlayerStateAndManage(PlayerState.ALIVE);
+                    player.setHealth(20.0);
+                    player.sendMessage(ChatColor.GREEN + "You have been revived by an admin!");
+                }
+
+                revivedCount++;
+            }
+        }
+
+        if (revivedCount > 0) {
+            Bukkit.broadcastMessage(team.getFormattedName() + ChatColor.GREEN + " has been revived by admin!");
+            return true;
+        }
+
+        return false;
+    }
+
+    // Add elimination tracking
+    private final List<TeamEliminationRecord> eliminationRecords = new ArrayList<>();
+
+    /**
+     * Record when a team is eliminated for statistics
+     */
+    private void recordTeamElimination(UHCTeam team, String reason) {
+        eliminationRecords.add(new TeamEliminationRecord(
+                team.getTeamName(),
+                team.getFormattedName(),
+                System.currentTimeMillis(),
+                game.getFormattedGameDuration(),
+                reason,
+                team.getSize(),
+                team.getMembersList()
+        ));
+    }
+
+    /**
+     * Team elimination record for statistics
+     */
+    public static class TeamEliminationRecord {
+        public final String teamName;
+        public final String formattedName;
+        public final long eliminationTime;
+        public final String gameTimeWhenEliminated;
+        public final String reason;
+        public final int teamSize;
+        public final List<UUID> members;
+
+        public TeamEliminationRecord(String teamName, String formattedName, long eliminationTime,
+                                     String gameTimeWhenEliminated, String reason, int teamSize, List<UUID> members) {
+            this.teamName = teamName;
+            this.formattedName = formattedName;
+            this.eliminationTime = eliminationTime;
+            this.gameTimeWhenEliminated = gameTimeWhenEliminated;
+            this.reason = reason;
+            this.teamSize = teamSize;
+            this.members = new ArrayList<>(members);
+        }
+    }
+
+    /**
+     * End game statistics for teams
+     */
+    public static class TeamEndGameStats {
+        public final int aliveTeams;
+        public final int eliminatedTeams;
+        public final int totalPlayers;
+        public final int totalKills;
+        public final List<UHCTeam> aliveTeamsList;
+        public final List<UHCTeam> eliminatedTeamsList;
+
+        public TeamEndGameStats(int aliveTeams, int eliminatedTeams, int totalPlayers, int totalKills,
+                                List<UHCTeam> aliveTeamsList, List<UHCTeam> eliminatedTeamsList) {
+            this.aliveTeams = aliveTeams;
+            this.eliminatedTeams = eliminatedTeams;
+            this.totalPlayers = totalPlayers;
+            this.totalKills = totalKills;
+            this.aliveTeamsList = new ArrayList<>(aliveTeamsList);
+            this.eliminatedTeamsList = new ArrayList<>(eliminatedTeamsList);
+        }
     }
 }

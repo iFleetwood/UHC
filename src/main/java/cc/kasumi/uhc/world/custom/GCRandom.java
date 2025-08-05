@@ -6,8 +6,6 @@ import org.bukkit.util.noise.SimplexNoiseGenerator;
 
 public class GCRandom {
 
-
-
     public Chunk chunk;
     private final double f1xz;
     private final double f1y;
@@ -17,8 +15,7 @@ public class GCRandom {
     private final NoiseGenerator noiseGen2;
     private final NoiseGenerator noiseGen3;
 
-    public GCRandom(Chunk chunk)
-    {
+    public GCRandom(Chunk chunk) {
         this.chunk = chunk;
         this.subtractForLessThanCutoff = (100 - CaveSettings.CAVE_CUTOFF);
         this.f1xz = (1.0D / CaveSettings.CAVE_H_STRETCH);
@@ -33,8 +30,7 @@ public class GCRandom {
         this.noiseGen3 = new SimplexNoiseGenerator((long) this.noiseGen1.noise(chunk.getX(), chunk.getZ()));
     }
 
-    public boolean isInGiantCave(int x, int y, int z)
-    {
+    public boolean isInGiantCave(int x, int y, int z) {
         double xx = this.chunk.getX() << 4 | x & 0xF;
         double yy = y;
         double zz = this.chunk.getZ() << 4 | z & 0xF;
@@ -48,21 +44,21 @@ public class GCRandom {
         return isInCave;
     }
 
-    private double linearCutoffCoefficient(int y)
-    {
+    private double linearCutoffCoefficient(int y) {
         if ((y < CaveSettings.CAVE_MIN_Y) || (y > CaveSettings.CAVE_MAX_Y)) {
             return this.subtractForLessThanCutoff;
         }
-        if ((y >= CaveSettings.CAVE_MIN_Y) && (y <= CaveSettings.CAVE_MIN_Y+ this.caveBandBuffer))
-        {
+
+        if ((y >= CaveSettings.CAVE_MIN_Y) && (y <= CaveSettings.CAVE_MIN_Y+ this.caveBandBuffer)) {
             double yy = y - CaveSettings.CAVE_MIN_Y;
             return -this.subtractForLessThanCutoff / this.caveBandBuffer * yy + this.subtractForLessThanCutoff;
         }
-        if ((y <= CaveSettings.CAVE_MAX_Y) && (y >= CaveSettings.CAVE_MAX_Y - this.caveBandBuffer))
-        {
+
+        if ((y <= CaveSettings.CAVE_MAX_Y) && (y >= CaveSettings.CAVE_MAX_Y - this.caveBandBuffer)) {
             double yy = y - CaveSettings.CAVE_MAX_Y + this.caveBandBuffer;
             return this.subtractForLessThanCutoff / this.caveBandBuffer * yy;
         }
+
         return 0.0D;
     }
 }

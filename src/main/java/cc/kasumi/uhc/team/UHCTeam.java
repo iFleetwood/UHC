@@ -11,11 +11,12 @@ import java.util.*;
 @Getter
 public class UHCTeam {
 
+    private final Set<UUID> members = new HashSet<>();
+    private final Set<UUID> aliveMembers = new HashSet<>();
+
     private final UUID teamId;
     private final String teamName;
     private final ChatColor teamColor;
-    private final Set<UUID> members;
-    private final Set<UUID> alivemembers;
 
     @Setter
     private UUID teamLeader;
@@ -32,8 +33,6 @@ public class UHCTeam {
         this.teamId = UUID.randomUUID();
         this.teamName = teamName;
         this.teamColor = teamColor;
-        this.members = new HashSet<>();
-        this.alivemembers = new HashSet<>();
         this.friendlyFire = false;
         this.allowJoining = true;
         this.createdTime = System.currentTimeMillis();
@@ -43,8 +42,6 @@ public class UHCTeam {
         this.teamId = teamId;
         this.teamName = teamName;
         this.teamColor = teamColor;
-        this.members = new HashSet<>();
-        this.alivemembers = new HashSet<>();
         this.friendlyFire = false;
         this.allowJoining = true;
         this.createdTime = System.currentTimeMillis();
@@ -60,7 +57,7 @@ public class UHCTeam {
 
         boolean added = members.add(playerUuid);
         if (added) {
-            alivemembers.add(playerUuid);
+            aliveMembers.add(playerUuid);
 
             // Set first member as team leader if no leader exists
             if (teamLeader == null) {
@@ -76,7 +73,7 @@ public class UHCTeam {
     public boolean removeMember(UUID playerUuid) {
         boolean removed = members.remove(playerUuid);
         if (removed) {
-            alivemembers.remove(playerUuid);
+            aliveMembers.remove(playerUuid);
 
             // If the leader was removed, assign a new one
             if (playerUuid.equals(teamLeader) && !members.isEmpty()) {
@@ -92,12 +89,12 @@ public class UHCTeam {
      * Mark a player as eliminated (dead)
      */
     public void eliminatePlayer(UUID playerUuid) {
-        alivemembers.remove(playerUuid);
+        aliveMembers.remove(playerUuid);
 
         // If the leader died, assign a new one from alive members
-        if (playerUuid.equals(teamLeader) && !alivemembers.isEmpty()) {
-            teamLeader = alivemembers.iterator().next();
-        } else if (alivemembers.isEmpty()) {
+        if (playerUuid.equals(teamLeader) && !aliveMembers.isEmpty()) {
+            teamLeader = aliveMembers.iterator().next();
+        } else if (aliveMembers.isEmpty()) {
             // Team leader can be null if no alive members
             // But keep the original leader for reference
         }
@@ -108,7 +105,7 @@ public class UHCTeam {
      */
     public void revivePlayer(UUID playerUuid) {
         if (members.contains(playerUuid)) {
-            alivemembers.add(playerUuid);
+            aliveMembers.add(playerUuid);
         }
     }
 
@@ -123,14 +120,14 @@ public class UHCTeam {
      * Check if a player is alive on this team
      */
     public boolean isAliveMember(UUID playerUuid) {
-        return alivemembers.contains(playerUuid);
+        return aliveMembers.contains(playerUuid);
     }
 
     /**
      * Check if this team is eliminated (no alive members)
      */
     public boolean isEliminated() {
-        return alivemembers.isEmpty();
+        return aliveMembers.isEmpty();
     }
 
     /**
@@ -152,7 +149,7 @@ public class UHCTeam {
      */
     public List<Player> getOnlineAliveMembers() {
         List<Player> onlineAlive = new ArrayList<>();
-        for (UUID uuid : alivemembers) {
+        for (UUID uuid : aliveMembers) {
             Player player = Bukkit.getPlayer(uuid);
             if (player != null && player.isOnline()) {
                 onlineAlive.add(player);
@@ -214,7 +211,7 @@ public class UHCTeam {
      * Get alive team size
      */
     public int getAliveSize() {
-        return alivemembers.size();
+        return aliveMembers.size();
     }
 
     /**
@@ -228,7 +225,7 @@ public class UHCTeam {
      * Get alive team members as list
      */
     public List<UUID> getAliveMembersList() {
-        return new ArrayList<>(alivemembers);
+        return new ArrayList<>(aliveMembers);
     }
 
     /**
@@ -264,7 +261,7 @@ public class UHCTeam {
             // Add color coding
             if (uuid.equals(teamLeader)) {
                 sb.append(ChatColor.GOLD).append("★").append(playerName); // Leader
-            } else if (alivemembers.contains(uuid)) {
+            } else if (aliveMembers.contains(uuid)) {
                 sb.append(ChatColor.GREEN).append(playerName); // Alive
             } else {
                 sb.append(ChatColor.GRAY).append(playerName); // Dead
@@ -297,7 +294,7 @@ public class UHCTeam {
                 "name='" + teamName + '\'' +
                 ", color=" + teamColor +
                 ", members=" + members.size() +
-                ", alive=" + alivemembers.size() +
+                ", alive=" + aliveMembers.size() +
                 ", leader=" + (teamLeader != null ? Bukkit.getOfflinePlayer(teamLeader).getName() : "none") +
                 '}';
     }

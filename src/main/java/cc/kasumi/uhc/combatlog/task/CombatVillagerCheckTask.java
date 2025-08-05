@@ -9,7 +9,7 @@ import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.Map;
 
-public class CombatVillagerCheckTask extends BukkitRunnable implements Listener {
+public class CombatVillagerCheckTask extends BukkitRunnable {
 
     private final CombatLogVillagerManager combatLogVillagerManager;
 

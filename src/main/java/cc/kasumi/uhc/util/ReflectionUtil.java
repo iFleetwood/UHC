@@ -54,24 +54,15 @@ public class ReflectionUtil {
 
         try {
             fakeDragon = (FakeDragon) fakeDragonClass.getConstructor(String.class, Location.class).newInstance(message, loc);
-        } catch (IllegalArgumentException e) {
-            e.printStackTrace();
-        } catch (SecurityException e) {
-            e.printStackTrace();
-        } catch (InstantiationException e) {
-            e.printStackTrace();
-        } catch (IllegalAccessException e) {
-            e.printStackTrace();
-        } catch (InvocationTargetException e) {
-            e.printStackTrace();
-        } catch (NoSuchMethodException e) {
+        } catch (IllegalArgumentException | SecurityException | InstantiationException | IllegalAccessException |
+                 InvocationTargetException | NoSuchMethodException e) {
             e.printStackTrace();
         }
 
         return fakeDragon;
     }
 
-    // Reflection Reflection
+    // Reflection
     public static void sendPacket(Player player, Object packet) {
         try {
             Object nmsPlayer = getHandle(player);
@@ -79,15 +70,8 @@ public class ReflectionUtil {
             Object con = con_field.get(nmsPlayer);
             Method packet_method = getMethod(con.getClass(), "sendPacket");
             packet_method.invoke(con, packet);
-        } catch (SecurityException e) {
-            e.printStackTrace();
-        } catch (IllegalArgumentException e) {
-            e.printStackTrace();
-        } catch (IllegalAccessException e) {
-            e.printStackTrace();
-        } catch (InvocationTargetException e) {
-            e.printStackTrace();
-        } catch (NoSuchFieldException e) {
+        } catch (SecurityException | IllegalArgumentException | IllegalAccessException | InvocationTargetException |
+                 NoSuchFieldException e) {
             e.printStackTrace();
         }
     }

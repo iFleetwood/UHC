@@ -121,10 +121,10 @@ public class TeamSizeCommand extends BaseCommand {
     @HelpCommand
     public void onHelp(CommandSender sender) {
         sender.sendMessage(ChatColor.GOLD + "=== Game Mode Commands ===");
-        sender.sendMessage(ChatColor.YELLOW + "/gamemode" + ChatColor.GRAY + " - Show current game mode");
-        sender.sendMessage(ChatColor.YELLOW + "/gamemode solo" + ChatColor.GRAY + " - Set to solo mode");
-        sender.sendMessage(ChatColor.YELLOW + "/gamemode teams <size>" + ChatColor.GRAY + " - Set to team mode");
-        sender.sendMessage(ChatColor.YELLOW + "/gamemode auto" + ChatColor.GRAY + " - Auto-assign players to teams");
+        sender.sendMessage(ChatColor.YELLOW + "/teamsize" + ChatColor.GRAY + " - Show current game mode");
+        sender.sendMessage(ChatColor.YELLOW + "/teamsize solo" + ChatColor.GRAY + " - Set to solo mode");
+        sender.sendMessage(ChatColor.YELLOW + "/teamsize teams <size>" + ChatColor.GRAY + " - Set to team mode");
+        sender.sendMessage(ChatColor.YELLOW + "/teamsize auto" + ChatColor.GRAY + " - Auto-assign players to teams");
         sender.sendMessage("");
         sender.sendMessage(ChatColor.GRAY + "Note: Game mode can only be changed before the game starts.");
         sender.sendMessage(ChatColor.GRAY + "Solo mode = team size 1, Team mode = team size > 1");
