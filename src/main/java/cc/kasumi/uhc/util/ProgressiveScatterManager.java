@@ -632,7 +632,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             return 0;
         }
 
-        if (onlineMembers.size() == 1) {
+        if (onlineMembers.size() == 1 || game.isSoloMode()) {
             // Single player (solo team), just teleport to team center
             Player player = onlineMembers.get(0);
             player.teleport(teamCenter);
@@ -640,60 +640,185 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             return 1;
         }
 
-        // Multiple players, spread them around the team center
-        Random random = new Random();
+        // Multiple players - scatter them around the team center
+        List<Location> memberLocations = generateTeamMemberLocations(teamCenter, onlineMembers.size());
         int membersScattered = 0;
 
-        for (Player player : onlineMembers) {
-            Location memberLocation = findNearbyLocationImproved(teamCenter, random, membersScattered);
+        for (int i = 0; i < onlineMembers.size(); i++) {
+            Player player = onlineMembers.get(i);
+            Location memberLocation;
 
-            if (memberLocation != null) {
-                player.teleport(memberLocation);
-                player.sendMessage(ChatColor.GREEN + "You have been scattered with your team " + team.getFormattedName());
-                membersScattered++;
+            // Get pre-calculated location or fallback to team center
+            if (i < memberLocations.size()) {
+                memberLocation = memberLocations.get(i);
             } else {
-                // Fallback to team center
-                player.teleport(teamCenter);
-                player.sendMessage(ChatColor.GREEN + "You have been scattered with your team " + team.getFormattedName());
-                membersScattered++;
+                memberLocation = teamCenter;
             }
+
+            player.teleport(memberLocation);
+            player.sendMessage(ChatColor.GREEN + "You have been scattered with your team " + team.getFormattedName());
+            membersScattered++;
         }
 
+        // Send team message
         team.sendMessage(ChatColor.YELLOW + "Your team has been scattered! " + membersScattered + " members teleported.");
         return membersScattered;
     }
 
-    private Location findNearbyLocationImproved(Location center, Random random, int playerIndex) {
-        // Try systematic placement first for team members
-        if (playerIndex < 8) {
-            double angle = (playerIndex * 45) * Math.PI / 180; // 8 directions around circle
-            double distance = 15 + random.nextDouble() * 10; // 15-25 blocks from center
+    /**
+     * Generate safe locations for team members around their team center
+     * This ensures team members are close to each other but not at the exact same spot
+     */
+    private List<Location> generateTeamMemberLocations(Location teamCenter, int memberCount) {
+        List<Location> locations = new ArrayList<>();
+        Random random = new Random();
 
-            int x = (int) (center.getX() + distance * Math.cos(angle));
-            int z = (int) (center.getZ() + distance * Math.sin(angle));
+        // Always add the team center as the first location (for team leader)
+        locations.add(teamCenter.clone());
 
-            Location systematic = new Location(world, x + 0.5, world.getHighestBlockYAt(x, z) + 1, z + 0.5);
-            if (GameUtil.isLocationSafe(systematic)) {
+        // If only one member, return just the center
+        if (memberCount <= 1) {
+            return locations;
+        }
+
+        // Generate locations in a circle pattern around the team center
+        for (int i = 1; i < memberCount; i++) {
+            Location memberLocation = findSafeLocationAroundCenter(teamCenter, i, memberCount, random);
+
+            if (memberLocation != null) {
+                locations.add(memberLocation);
+            } else {
+                // Fallback to team center if we can't find a safe nearby location
+                locations.add(teamCenter.clone());
+                UHC.getInstance().getLogger().info("Could not find safe location for team member " + (i + 1) +
+                        ", using team center as fallback");
+            }
+        }
+
+        return locations;
+    }
+
+    /**
+     * Find a safe location around the team center for a specific team member
+     */
+    private Location findSafeLocationAroundCenter(Location center, int memberIndex, int totalMembers, Random random) {
+        // Strategy 1: Systematic circle placement
+        if (memberIndex <= 8) {
+            double angle = (memberIndex * 45.0) * Math.PI / 180.0; // 8 directions around circle
+            double distance = 8 + random.nextDouble() * 12; // 8-20 blocks from center
+
+            Location systematic = calculateLocationAtAngleAndDistance(center, angle, distance);
+            if (systematic != null && GameUtil.isLocationSafe(systematic)) {
                 return systematic;
             }
         }
 
-        // Fall back to random placement
+        // Strategy 2: Random placement in expanding rings
+        for (int ring = 1; ring <= 3; ring++) { // Try 3 rings around center
+            for (int attempt = 0; attempt < 8; attempt++) { // 8 attempts per ring
+                double angle = random.nextDouble() * 2 * Math.PI;
+                double minDistance = ring * 8; // 8, 16, 24 blocks
+                double maxDistance = minDistance + 8;
+                double distance = minDistance + random.nextDouble() * (maxDistance - minDistance);
+
+                Location candidate = calculateLocationAtAngleAndDistance(center, angle, distance);
+                if (candidate != null && GameUtil.isLocationSafe(candidate)) {
+                    return candidate;
+                }
+            }
+        }
+
+        // Strategy 3: Try nearby safe spots with reduced distance
         for (int attempt = 0; attempt < 15; attempt++) {
             double angle = random.nextDouble() * 2 * Math.PI;
-            double distance = random.nextDouble() * MAX_TEAM_SPREAD;
+            double distance = 5 + random.nextDouble() * 15; // 5-20 blocks
 
-            int x = (int) (center.getX() + distance * Math.cos(angle));
-            int z = (int) (center.getZ() + distance * Math.sin(angle));
-
-            Location candidate = new Location(world, x + 0.5, world.getHighestBlockYAt(x, z) + 1, z + 0.5);
-
-            if (GameUtil.isLocationSafe(candidate)) {
+            Location candidate = calculateLocationAtAngleAndDistance(center, angle, distance);
+            if (candidate != null && GameUtil.isLocationSafe(candidate)) {
                 return candidate;
             }
         }
 
-        return null; // Fallback to team center
+        // Strategy 4: Grid-based placement as last resort
+        int[] xOffsets = {-10, -5, 0, 5, 10, -15, 15, -8, 8, -12, 12};
+        int[] zOffsets = {-10, -5, 0, 5, 10, -15, 15, -8, 8, -12, 12};
+
+        for (int xOffset : xOffsets) {
+            for (int zOffset : zOffsets) {
+                if (xOffset == 0 && zOffset == 0) continue; // Skip center
+
+                Location candidate = center.clone().add(xOffset, 0, zOffset);
+                candidate.setY(world.getHighestBlockYAt(candidate) + 1);
+
+                if (GameUtil.isLocationSafe(candidate)) {
+                    return candidate;
+                }
+            }
+        }
+
+        return null; // No safe location found
+    }
+
+    /**
+     * Calculate a location at a specific angle and distance from center
+     */
+    private Location calculateLocationAtAngleAndDistance(Location center, double angle, double distance) {
+        try {
+            double x = center.getX() + distance * Math.cos(angle);
+            double z = center.getZ() + distance * Math.sin(angle);
+
+            Location candidate = new Location(world, x, 0, z);
+            int groundY = world.getHighestBlockYAt(candidate);
+
+            // Ensure reasonable Y coordinate
+            if (groundY < 1) groundY = 64;
+            if (groundY > 200) groundY = 100;
+
+            candidate.setY(groundY + 1);
+            return candidate;
+        } catch (Exception e) {
+            UHC.getInstance().getLogger().warning("Error calculating location at angle/distance: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Enhanced method to ensure team members are spread properly
+     * Add this to the ProgressiveScatterManager class
+     */
+    private void validateTeamScatterSpread(UHCTeam team, List<Location> memberLocations) {
+        if (memberLocations.size() <= 1) return;
+
+        // Check that no two locations are too close together
+        for (int i = 0; i < memberLocations.size(); i++) {
+            for (int j = i + 1; j < memberLocations.size(); j++) {
+                Location loc1 = memberLocations.get(i);
+                Location loc2 = memberLocations.get(j);
+
+                double distance = loc1.distance(loc2);
+                if (distance < 5.0) { // Too close together
+                    UHC.getInstance().getLogger().warning("Team " + team.getTeamName() +
+                            " members scattered too close together (distance: " + String.format("%.1f", distance) + ")");
+                }
+            }
+        }
+    }
+
+    /**
+     * Debug method to log team scatter locations
+     */
+    private void logTeamScatterDebug(UHCTeam team, Location teamCenter, List<Location> memberLocations) {
+        if (UHC.getInstance().getLogger().isLoggable(java.util.logging.Level.FINE)) {
+            UHC.getInstance().getLogger().fine("=== Team Scatter Debug: " + team.getTeamName() + " ===");
+            UHC.getInstance().getLogger().fine("Team Center: " + formatLocation(teamCenter));
+
+            for (int i = 0; i < memberLocations.size(); i++) {
+                Location memberLoc = memberLocations.get(i);
+                double distanceFromCenter = teamCenter.distance(memberLoc);
+                UHC.getInstance().getLogger().fine("Member " + (i + 1) + ": " + formatLocation(memberLoc) +
+                        " (distance from center: " + String.format("%.1f", distanceFromCenter) + ")");
+            }
+        }
     }
 
     private void addSurroundingChunks(Location center) {

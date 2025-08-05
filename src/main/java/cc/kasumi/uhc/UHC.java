@@ -44,7 +44,7 @@ public final class UHC extends JavaPlugin {
         worldManager = new WorldManager(this);
         getLogger().info("WorldManager initialized");
 
-        // Initialize worlds asynchronously to prevent startup lag
+        // Initialize worlds to prevent startup lag
         initializeWorlds();
 
         // Initialize game after world manager
@@ -56,7 +56,6 @@ public final class UHC extends JavaPlugin {
         registerCommands();
 
         getLogger().info("UHC Plugin initialization completed!");
-
     }
 
     /**
@@ -241,7 +240,7 @@ public final class UHC extends JavaPlugin {
         try {
             paperCommandManager.registerCommand(new StartCommand());
             paperCommandManager.registerCommand(new ScatterCommand());
-            paperCommandManager.registerCommand(new TestCommand());
+            paperCommandManager.registerCommand(new NameTagCommand());
             paperCommandManager.registerCommand(new StateCommand());
             paperCommandManager.registerCommand(new TestBorderCommand());
             paperCommandManager.registerCommand(new TickTimeCommand());

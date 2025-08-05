@@ -9,6 +9,7 @@ import cc.kasumi.uhc.game.state.GameEndedState;
 import cc.kasumi.uhc.game.state.ScatteringGameState;
 import cc.kasumi.uhc.game.state.WaitingGameState;
 import cc.kasumi.uhc.game.task.*;
+import cc.kasumi.uhc.packets.NameTagManager;
 import cc.kasumi.uhc.player.PlayerState;
 import cc.kasumi.uhc.player.UHCPlayer;
 import cc.kasumi.uhc.scenario.ScenarioManager;
@@ -38,6 +39,7 @@ public class Game {
     private final CombatLogVillagerManager combatLogVillagerManager = new CombatLogVillagerManager(this);
     private final ScenarioManager scenarioManager = new ScenarioManager(this);
     private final TeamManager teamManager = new TeamManager(this);
+    private NameTagManager nameTagManager = new NameTagManager(this);
     private BarAPI barAPI;
 
     private GameState state = new WaitingGameState(this);
@@ -130,6 +132,24 @@ public class Game {
         }
     }
 
+    public void enableTeamNameTags() {
+        if (nameTagManager != null) {
+            nameTagManager.enableTeamNameTags();
+            UHC.getInstance().getLogger().info("Team nametags enabled for game");
+        }
+    }
+
+    /**
+     * Disable team-based nametags
+     * Should be called when the game ends
+     */
+    public void disableTeamNameTags() {
+        if (nameTagManager != null) {
+            nameTagManager.disableTeamNameTags();
+            UHC.getInstance().getLogger().info("Team nametags disabled for game");
+        }
+    }
+
     public void setGameState(GameState newState) {
         if (!isValidTransition(this.state, newState)) {
             throw new IllegalStateException("Invalid transition from " +
@@ -190,6 +210,8 @@ public class Game {
 
             // Cancel wall builders
             GameUtil.cancelAllWallBuilders();
+
+            disableTeamNameTags();
 
             // Stop bar API
             if (barAPI != null) {
@@ -666,6 +688,7 @@ public class Game {
             return;
         }
 
+        enableTeamNameTags();
         barAPI = new BarAPI();
         barAPI.onEnable();
         setGameState(new ActiveGameState(this));

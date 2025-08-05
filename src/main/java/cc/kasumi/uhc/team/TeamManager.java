@@ -16,6 +16,7 @@ import java.util.stream.Collectors;
 /**
  * Simplified TeamManager that handles both solo and team modes
  * Solo mode = teams of size 1, Team mode = teams of size > 1
+ * Enhanced with NameTag integration
  */
 @Getter
 public class TeamManager {
@@ -97,7 +98,7 @@ public class TeamManager {
     }
 
     /**
-     * Add a player to a team
+     * Add a player to a team - Enhanced with NameTag integration
      */
     public boolean addPlayerToTeam(UUID playerUuid, UUID teamId) {
         UHCTeam team = teams.get(teamId);
@@ -124,6 +125,11 @@ public class TeamManager {
                     player.sendMessage(ChatColor.GREEN + "You joined team " + team.getFormattedName());
                     team.sendMessage(player.getName() + " joined the team!");
                 }
+
+                // NameTag Integration - Notify the nametag manager
+                if (game.getNameTagManager() != null) {
+                    game.getNameTagManager().onPlayerJoinTeam(player);
+                }
             }
 
             return true;
@@ -144,7 +150,7 @@ public class TeamManager {
     }
 
     /**
-     * Remove a player from their current team
+     * Remove a player from their current team - Enhanced with NameTag integration
      */
     public boolean removePlayerFromTeam(UUID playerUuid) {
         UUID teamId = playerToTeam.get(playerUuid);
@@ -162,15 +168,27 @@ public class TeamManager {
         playerToTeam.remove(playerUuid);
 
         Player player = Bukkit.getPlayer(playerUuid);
-        if (player != null && game.isTeamMode()) {
-            player.sendMessage(ChatColor.YELLOW + "You left team " + team.getFormattedName());
-            team.sendMessage(player.getName() + " left the team!");
+        if (player != null) {
+            if (game.isTeamMode()) {
+                player.sendMessage(ChatColor.YELLOW + "You left team " + team.getFormattedName());
+                team.sendMessage(player.getName() + " left the team!");
+            }
+
+            // NameTag Integration - Notify the nametag manager
+            if (game.getNameTagManager() != null) {
+                game.getNameTagManager().onPlayerLeaveTeam(player);
+            }
         }
 
         // Delete team if empty and auto-deletion is enabled
         if (config.isAutoDeleteEmptyTeams() && team.getSize() == 0) {
             teams.remove(teamId);
             UHC.getInstance().getLogger().info("Auto-deleted empty team: " + team.getTeamName());
+
+            // NameTag Integration - Notify nametag manager of team data change
+            if (game.getNameTagManager() != null) {
+                game.getNameTagManager().onTeamDataChange();
+            }
         }
 
         return true;
@@ -268,7 +286,7 @@ public class TeamManager {
     }
 
     /**
-     * Auto-assign players to teams
+     * Auto-assign players to teams - Enhanced with NameTag integration
      */
     public void autoAssignTeams(List<UUID> players, int teamSize) {
         if (players.isEmpty()) {
@@ -286,6 +304,11 @@ public class TeamManager {
                 }
             }
             UHC.getInstance().getLogger().info("Created " + players.size() + " solo teams");
+
+            // NameTag Integration - Notify nametag manager of major change
+            if (game.getNameTagManager() != null) {
+                game.getNameTagManager().onTeamDataChange();
+            }
             return;
         }
 
@@ -318,15 +341,26 @@ public class TeamManager {
 
         UHC.getInstance().getLogger().info("Auto-assigned " + players.size() +
                 " players to " + (teamNumber - 1) + " teams of size " + teamSize);
+
+        // NameTag Integration - Notify nametag manager of major change
+        if (game.getNameTagManager() != null) {
+            game.getNameTagManager().onTeamDataChange();
+        }
     }
 
     /**
-     * Clear all teams
+     * Clear all teams - Enhanced with NameTag integration
      */
     public void clearAllTeams() {
         teams.clear();
         playerToTeam.clear();
         colorIndex = 0;
+
+        // NameTag Integration - Notify nametag manager of major change
+        if (game.getNameTagManager() != null) {
+            game.getNameTagManager().onTeamDataChange();
+        }
+
         UHC.getInstance().getLogger().info("All teams cleared");
     }
 
@@ -394,6 +428,11 @@ public class TeamManager {
 
         if (soloTeamsCreated > 0) {
             UHC.getInstance().getLogger().info("Created " + soloTeamsCreated + " solo teams for unassigned players");
+
+            // NameTag Integration - Notify nametag manager of major change
+            if (game.getNameTagManager() != null) {
+                game.getNameTagManager().onTeamDataChange();
+            }
         }
     }
 
@@ -410,11 +449,8 @@ public class TeamManager {
         public int smallestTeamSize = 0;
     }
 
-    // Add to TeamManager.java class
-
     /**
-     * Handle player death - mark as eliminated and announce if needed
-     * Enhanced version that provides better death messaging
+     * Handle player death - mark as eliminated - Enhanced with NameTag integration
      */
     public void handlePlayerDeath(UUID playerUuid) {
         UHCTeam team = getPlayerTeam(playerUuid);
@@ -435,6 +471,11 @@ public class TeamManager {
         if (team.isEliminated()) {
             // Entire team eliminated
             handleTeamElimination(team, playerName);
+
+            // NameTag Integration - Notify nametag manager of major team change
+            if (game.getNameTagManager() != null) {
+                game.getNameTagManager().onTeamDataChange();
+            }
         } else {
             // Just this player eliminated from team
             if (game.isTeamMode() && team.getSize() > 1) {
@@ -556,7 +597,7 @@ public class TeamManager {
     }
 
     /**
-     * Force eliminate a team (admin command)
+     * Force eliminate a team (admin command) - Enhanced with NameTag integration
      */
     public boolean forceEliminateTeam(String teamName, String reason) {
         UHCTeam team = getTeamByName(teamName);
@@ -582,6 +623,11 @@ public class TeamManager {
         Bukkit.broadcastMessage(team.getFormattedName() + ChatColor.RED + " has been eliminated by admin!");
         Bukkit.broadcastMessage(ChatColor.GRAY + "Reason: " + reason);
 
+        // NameTag Integration - Notify nametag manager of major change
+        if (game.getNameTagManager() != null) {
+            game.getNameTagManager().onTeamDataChange();
+        }
+
         // Check if game should end
         game.checkGameEndCondition();
 
@@ -589,7 +635,7 @@ public class TeamManager {
     }
 
     /**
-     * Revive a team (admin command - only works if game hasn't ended)
+     * Revive a team (admin command) - Enhanced with NameTag integration
      */
     public boolean reviveTeam(String teamName) {
         UHCTeam team = getTeamByName(teamName);
@@ -621,6 +667,12 @@ public class TeamManager {
 
         if (revivedCount > 0) {
             Bukkit.broadcastMessage(team.getFormattedName() + ChatColor.GREEN + " has been revived by admin!");
+
+            // NameTag Integration - Notify nametag manager of major change
+            if (game.getNameTagManager() != null) {
+                game.getNameTagManager().onTeamDataChange();
+            }
+
             return true;
         }
 
