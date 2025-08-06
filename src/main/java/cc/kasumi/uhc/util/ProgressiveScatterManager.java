@@ -85,7 +85,8 @@ public class ProgressiveScatterManager extends BukkitRunnable {
 
         UHC.getInstance().getLogger().info("Starting scatter for " + teamsToScatter.size() +
                 " teams using full border area (game border: " + game.getInitialBorderSize() +
-                ", effective radius: " + (int)effectiveBorderRadius + ") in world: " +
+                ", effective radius: " + (int)effectiveBorderRadius + ", area: " + 
+                String.format("%.0f", effectiveBorderRadius * 2 * effectiveBorderRadius * 2) + " blocks²) in world: " +
                 (world != null ? world.getName() : "NULL"));
     }
 
@@ -158,7 +159,8 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         currentPhase = ScatterPhase.GENERATING_LOCATIONS;
         Bukkit.broadcastMessage(ChatColor.YELLOW + "Teams validated. Generating scatter locations...");
         UHC.getInstance().getLogger().info("Team validation completed. Found " + teamsToScatter.size() +
-                " valid teams to scatter using full border area (effective radius: " + (int)effectiveBorderRadius + ")");
+                " valid teams to scatter using full border area (effective radius: " + (int)effectiveBorderRadius + 
+                ", area: " + String.format("%.0f", effectiveBorderRadius * 2 * effectiveBorderRadius * 2) + " blocks²)");
     }
 
     private void generateTeamLocations() {
@@ -304,11 +306,11 @@ public class ProgressiveScatterManager extends BukkitRunnable {
 
     private Location findLocationNearCenter(Random random, int maxRadius) {
         for (int attempt = 0; attempt < 20; attempt++) {
-            double angle = random.nextDouble() * 2 * Math.PI;
-            double distance = random.nextDouble() * Math.min(maxRadius, effectiveBorderRadius / 2);
-
-            int x = (int) (borderCenter.getX() + distance * Math.cos(angle));
-            int z = (int) (borderCenter.getZ() + distance * Math.sin(angle));
+            // Use a smaller area near center for fallback
+            double actualMaxRadius = Math.min(maxRadius, effectiveBorderRadius / 2);
+            
+            int x = (int) (borderCenter.getX() + (random.nextDouble() * 2 - 1) * actualMaxRadius);
+            int z = (int) (borderCenter.getZ() + (random.nextDouble() * 2 - 1) * actualMaxRadius);
 
             Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
             int groundY = world.getHighestBlockYAt(candidate);
@@ -323,11 +325,12 @@ public class ProgressiveScatterManager extends BukkitRunnable {
 
     private Location findLocationWithReducedRequirements(Random random) {
         for (int attempt = 0; attempt < 30; attempt++) {
-            double angle = random.nextDouble() * 2 * Math.PI;
-            double distance = random.nextDouble() * effectiveBorderRadius;
-
-            int x = (int) (borderCenter.getX() + distance * Math.cos(angle));
-            int z = (int) (borderCenter.getZ() + distance * Math.sin(angle));
+            // Use full border area instead of just a circle
+            double maxX = effectiveBorderRadius;
+            double maxZ = effectiveBorderRadius;
+            
+            int x = (int) (borderCenter.getX() + (random.nextDouble() * 2 - 1) * maxX);
+            int z = (int) (borderCenter.getZ() + (random.nextDouble() * 2 - 1) * maxZ);
 
             Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
             int groundY = world.getHighestBlockYAt(candidate);
@@ -474,12 +477,13 @@ public class ProgressiveScatterManager extends BukkitRunnable {
 
     private Location generateRandomLocation(Random random) {
         try {
-            // FIXED: Use effective border radius to utilize full border area
-            double angle = random.nextDouble() * 2 * Math.PI;
-            double distance = random.nextDouble() * effectiveBorderRadius;
-
-            int x = (int) (borderCenter.getX() + distance * Math.cos(angle));
-            int z = (int) (borderCenter.getZ() + distance * Math.sin(angle));
+            // FIXED: Use full border area instead of just a circle
+            // Generate random coordinates within the full border area
+            double maxX = effectiveBorderRadius;
+            double maxZ = effectiveBorderRadius;
+            
+            int x = (int) (borderCenter.getX() + (random.nextDouble() * 2 - 1) * maxX);
+            int z = (int) (borderCenter.getZ() + (random.nextDouble() * 2 - 1) * maxZ);
 
             Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
             int groundY = world.getHighestBlockYAt(candidate);
@@ -881,7 +885,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
                     ", Average: " + String.format("%.1f", averageDistance));
             UHC.getInstance().getLogger().info("Game border size: " + game.getInitialBorderSize() +
                     ", Effective radius: " + String.format("%.1f", effectiveBorderRadius) +
-                    ", Using full border area for scattering");
+                    ", Scatter area: " + String.format("%.0f", effectiveBorderRadius * 2 * effectiveBorderRadius * 2) + " blocks²");
             UHC.getInstance().getLogger().info("====================================");
         }
     }
