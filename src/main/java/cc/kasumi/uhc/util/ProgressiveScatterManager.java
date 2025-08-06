@@ -59,10 +59,12 @@ public class ProgressiveScatterManager extends BukkitRunnable {
     public ProgressiveScatterManager(Game game, int radius) {
         this.game = game;
         this.world = game.getWorld();
-        this.radius = Math.max(150, radius - SAFETY_BUFFER_FROM_BORDER); // Increased minimum
+
+        // FIXED: Use game effective border size instead of border.getSize()
+        this.radius = Math.max(150, radius - SAFETY_BUFFER_FROM_BORDER);
         this.teamsToScatter = getValidTeamsToScatter();
 
-        UHC.getInstance().getLogger().info("Starting improved scatter for " + teamsToScatter.size() +
+        UHC.getInstance().getLogger().info("Starting scatter for " + teamsToScatter.size() +
                 " teams with radius " + this.radius + " in world: " +
                 (world != null ? world.getName() : "NULL"));
     }
@@ -117,13 +119,13 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             return;
         }
 
-        // FIXED: Use game's initial border size instead of world border size
-        double borderSize = (double) game.getInitialBorderSize() / 2;
+        // FIXED: Validate world border using game effective border size
+        double borderRadius = game.getEffectiveBorderRadius();
 
-        if (borderSize < radius) {
-            UHC.getInstance().getLogger().warning("Game border size (" + (int)borderSize +
+        if (borderRadius < radius) {
+            UHC.getInstance().getLogger().warning("World border (" + (int)borderRadius +
                     ") is smaller than scatter radius (" + radius + "), adjusting...");
-            radius = Math.max(100, (int) (borderSize - SAFETY_BUFFER_FROM_BORDER));
+            radius = Math.max(100, (int) (borderRadius - SAFETY_BUFFER_FROM_BORDER));
         }
 
         // Initialize scatter attempts tracking
@@ -134,8 +136,9 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         currentPhase = ScatterPhase.GENERATING_LOCATIONS;
         Bukkit.broadcastMessage(ChatColor.YELLOW + "Teams validated. Generating scatter locations...");
         UHC.getInstance().getLogger().info("Team validation completed. Found " + teamsToScatter.size() +
-                " valid teams to scatter with adjusted radius: " + radius + " (game border: " + game.getInitialBorderSize() + ")");
+                " valid teams to scatter with adjusted radius: " + radius);
     }
+
 
     private void generateTeamLocations() {
         int locationsGenerated = 0;
@@ -399,7 +402,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         // Check if within world border with safety buffer
         WorldBorder border = world.getWorldBorder();
         Location borderCenter = border.getCenter();
-        double borderRadius = border.getSize() / 2 - 30; // Reduced buffer
+        double borderRadius = game.getEffectiveBorderRadius() - 30; // Reduced buffer
 
         double deltaX = Math.abs(location.getX() - borderCenter.getX());
         double deltaZ = Math.abs(location.getZ() - borderCenter.getZ());
@@ -464,61 +467,24 @@ public class ProgressiveScatterManager extends BukkitRunnable {
 
     private Location generateRandomLocation(Random random) {
         try {
-            WorldBorder border = world.getWorldBorder();
-            Location center = border.getCenter();
+            // FIXED: Use game effective border instead of world border
+            Location center = world.getWorldBorder().getCenter(); // Center stays the same
 
-            // Ensure we have a valid center - default to 0,0 if border center is invalid
-            double centerX = 0.0;
-            double centerZ = 0.0;
-
-            if (center != null) {
-                centerX = center.getX();
-                centerZ = center.getZ();
-            }
-
-            // Calculate effective radius (with safety buffer)
-            double effectiveRadius = Math.max(100, radius - SAFETY_BUFFER_FROM_BORDER);
-
-            // IMPROVED DISTRIBUTION: Use square root to avoid clustering near center
-            double distance = Math.sqrt(random.nextDouble()) * effectiveRadius;
-
-            // Ensure minimum distance from center to avoid clustering
-            double minDistanceFromCenter = Math.min(50, effectiveRadius * 0.2);
-            if (distance < minDistanceFromCenter) {
-                distance = minDistanceFromCenter + random.nextDouble() * (effectiveRadius - minDistanceFromCenter);
-            }
-
-            // Random angle
             double angle = random.nextDouble() * 2 * Math.PI;
+            double distance = random.nextDouble() * radius;
 
-            // Calculate coordinates
-            int x = (int) (centerX + distance * Math.cos(angle));
-            int z = (int) (centerZ + distance * Math.sin(angle));
-
-            // Add small random offset to avoid exact coordinate alignment
-            x += (random.nextInt(21) - 10); // -10 to +10 block offset
-            z += (random.nextInt(21) - 10); // -10 to +10 block offset
+            int x = (int) (center.getX() + distance * Math.cos(angle));
+            int z = (int) (center.getZ() + distance * Math.sin(angle));
 
             Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
-
-            // Get ground level with better validation
             int groundY = world.getHighestBlockYAt(candidate);
 
-            // Validate Y coordinate
-            if (groundY < 1) {
-                groundY = 64; // Default to sea level
-            } else if (groundY > 200) {
-                groundY = 100; // Avoid very high mountains
-            }
+            // Ensure reasonable Y coordinate
+            if (groundY < 1) groundY = 64;
+            if (groundY > 200) groundY = 100;
 
             candidate.setY(groundY + 1);
-
-            UHC.getInstance().getLogger().fine("Generated location at distance " +
-                    String.format("%.1f", distance) + " from center (" + centerX + ", " + centerZ +
-                    ") -> (" + x + ", " + groundY + ", " + z + ")");
-
             return candidate;
-
         } catch (Exception e) {
             UHC.getInstance().getLogger().warning("Error generating random location: " + e.getMessage());
             return null;
@@ -547,7 +513,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         double centerZ = 0.0;
 
         // FIXED: Use game's initial border size instead of WorldBorder.getSize()
-        double borderRadius = (double) game.getInitialBorderSize() / 2 - SAFETY_BUFFER_FROM_BORDER;
+        double borderRadius = game.getEffectiveBorderRadius();
 
         double deltaX = Math.abs(location.getX() - centerX);
         double deltaZ = Math.abs(location.getZ() - centerZ);

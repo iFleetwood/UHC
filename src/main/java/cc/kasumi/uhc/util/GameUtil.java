@@ -138,8 +138,10 @@ public class GameUtil {
             return null;
         }
 
-        double size = border.getSize();
-        double radius = size / 2;
+        // FIXED: Use centralized method instead of border.getSize()
+        Game game = UHC.getInstance().getGame();
+        double size = game.getEffectiveBorderSize();
+        double radius = game.getEffectiveBorderRadius();
 
         double deltaX = playerLoc.getX() - center.getX();
         double deltaZ = playerLoc.getZ() - center.getZ();
@@ -202,6 +204,7 @@ public class GameUtil {
 
         return teleportLoc;
     }
+
 
     /**
      * Find nearest safe location within radius
@@ -351,8 +354,9 @@ public class GameUtil {
             return true; // Assume safe if different worlds
         }
 
-        double size = border.getSize();
-        double radius = size / 2;
+        // FIXED: Use centralized method instead of border.getSize()
+        Game game = UHC.getInstance().getGame();
+        double radius = game.getEffectiveBorderRadius();
 
         double deltaX = Math.abs(entityLocation.getX() - center.getX());
         double deltaZ = Math.abs(entityLocation.getZ() - center.getZ());

@@ -79,6 +79,19 @@ public class Game {
         this.state.onEnable();
     }
 
+    public double getEffectiveBorderSize() {
+        // Use initial border size for calculations to prevent issues when border shrinks
+        return initialBorderSize * 2 - 1.5; // Match the actual border setup formula
+    }
+
+    /**
+     * Get the effective border radius for calculations
+     * @return half of the effective border size
+     */
+    public double getEffectiveBorderRadius() {
+        return getEffectiveBorderSize() / 2;
+    }
+
     /**
      * Initialize the world system for UHC
      */
