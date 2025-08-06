@@ -238,8 +238,8 @@ public final class UHC extends JavaPlugin {
 
     private void registerCommands() {
         try {
+            paperCommandManager.registerCommand(new ScatterDebugCommand());
             paperCommandManager.registerCommand(new StartCommand());
-            paperCommandManager.registerCommand(new ScatterCommand());
             paperCommandManager.registerCommand(new NameTagCommand());
             paperCommandManager.registerCommand(new StateCommand());
             paperCommandManager.registerCommand(new TestBorderCommand());

@@ -289,6 +289,7 @@ public class NameTagCreator {
 
     /**
      * Remove a player from a team for a specific viewer
+     * Fixed to avoid constructor validation issues
      */
     private static void removePlayerFromTeam(Player viewer, Player target, String teamName) {
         try {
@@ -296,41 +297,47 @@ public class NameTagCreator {
                 return;
             }
 
-            // Remove player from team
+            // Just remove the player from the team using param=4 (leave)
+            // Don't try to delete the team as that causes constructor validation errors
             List<String> members = Arrays.asList(target.getName());
-            PacketWrapper removePacket = new PacketWrapper(teamName, 4, members); // 4 = remove from team
+            PacketWrapper removePacket = new PacketWrapper(teamName, 4, members);
             removePacket.send(viewer);
 
-            // Delete the team
-            PacketWrapper deletePacket = new PacketWrapper(teamName, 1, new ArrayList<>()); // 1 = delete team
-            deletePacket.send(viewer);
-
         } catch (Exception e) {
-            UHC.getInstance().getLogger().warning("Failed to remove " +
-                    (target != null ? target.getName() : "null") + " from team " + teamName +
-                    " for viewer " + (viewer != null ? viewer.getName() : "null") + ": " + e.getMessage());
+            // Log the error but don't spam - this is a common occurrence during player disconnects
+            if (UHC.getInstance().getLogger().isLoggable(java.util.logging.Level.FINE)) {
+                UHC.getInstance().getLogger().fine("Failed to remove " +
+                        (target != null ? target.getName() : "null") + " from team " + teamName +
+                        " for viewer " + (viewer != null ? viewer.getName() : "null") + ": " + e.getMessage());
+            }
         }
     }
 
     /**
-     * Clear all active teams
+     * Clear all active teams - more robust cleanup method
      */
     private static void clearAllTeams() {
-        for (Map.Entry<UUID, Map<UUID, String>> entry : activeTeams.entrySet()) {
-            Player viewer = Bukkit.getPlayer(entry.getKey());
-            if (viewer == null || !viewer.isOnline()) {
-                continue;
-            }
+        try {
+            // Instead of trying to delete individual teams (which causes errors),
+            // just clear our tracking and let the client handle cleanup
+            for (Map.Entry<UUID, Map<UUID, String>> entry : activeTeams.entrySet()) {
+                Player viewer = Bukkit.getPlayer(entry.getKey());
+                if (viewer == null || !viewer.isOnline()) {
+                    continue;
+                }
 
-            // Delete all teams for this viewer
-            for (String teamName : entry.getValue().values()) {
-                try {
-                    PacketWrapper deletePacket = new PacketWrapper(teamName, 1, new ArrayList<>());
-                    deletePacket.send(viewer);
-                } catch (Exception e) {
-                    // Ignore errors during cleanup
+                // Try to delete each team using the full constructor
+                for (String teamName : entry.getValue().values()) {
+                    try {
+                        PacketWrapper deletePacket = new PacketWrapper(teamName, "", "", 1, new ArrayList<>(), false);
+                        deletePacket.send(viewer);
+                    } catch (Exception e) {
+                        // Ignore delete errors - they're not critical
+                    }
                 }
             }
+        } catch (Exception e) {
+            // Ignore cleanup errors
         }
 
         activeTeams.clear();
