@@ -4,11 +4,7 @@ import cc.kasumi.uhc.UHC;
 import cc.kasumi.uhc.game.Game;
 import cc.kasumi.uhc.team.UHCTeam;
 import lombok.Getter;
-import org.bukkit.ChatColor;
-import org.bukkit.Location;
-import org.bukkit.Material;
-import org.bukkit.World;
-import org.bukkit.Chunk;
+import org.bukkit.*;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
