@@ -140,13 +140,13 @@ public class ActiveGameState extends GameState {
                 game.checkGameEndCondition();
             } catch (Exception endCheckError) {
                 UHC.getInstance().getLogger().severe("Error checking game end after player death: " + endCheckError.getMessage());
-                endCheckError.printStackTrace();
+                UHC.getInstance().getLogger().log(java.util.logging.Level.SEVERE, "Game end check error after player death", endCheckError);
                 // Don't re-throw - let the death event complete normally
             }
 
         } catch (Exception e) {
             UHC.getInstance().getLogger().severe("Error handling player death event: " + e.getMessage());
-            e.printStackTrace();
+            UHC.getInstance().getLogger().log(java.util.logging.Level.SEVERE, "Player death event handling error", e);
             // Don't re-throw to prevent the original error from cascading
         }
     }
@@ -184,13 +184,13 @@ public class ActiveGameState extends GameState {
                 game.checkGameEndCondition();
             } catch (Exception endCheckError) {
                 UHC.getInstance().getLogger().severe("Error checking game end after villager death: " + endCheckError.getMessage());
-                endCheckError.printStackTrace();
+                UHC.getInstance().getLogger().log(java.util.logging.Level.SEVERE, "Game end check error after villager death", endCheckError);
                 // Don't re-throw - let the death event complete normally
             }
 
         } catch (Exception e) {
             UHC.getInstance().getLogger().severe("Error handling entity death event: " + e.getMessage());
-            e.printStackTrace();
+            UHC.getInstance().getLogger().log(java.util.logging.Level.SEVERE, "Entity death event handling error", e);
             // Don't re-throw to prevent the original error from cascading
         }
     }
@@ -239,7 +239,7 @@ public class ActiveGameState extends GameState {
 
         } catch (Exception e) {
             UHC.getInstance().getLogger().severe("Error announcing player death: " + e.getMessage());
-            e.printStackTrace();
+            UHC.getInstance().getLogger().log(java.util.logging.Level.SEVERE, "Player death announcement error", e);
 
             // Fallback announcement
             try {

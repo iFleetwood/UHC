@@ -4,11 +4,23 @@ import cc.kasumi.uhc.UHC;
 import cc.kasumi.uhc.game.Game;
 import cc.kasumi.uhc.team.UHCTeam;
 import lombok.Getter;
-import org.bukkit.*;
+import org.bukkit.ChatColor;
+import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.World;
+import org.bukkit.Chunk;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * Fixed scatter manager that uses game border settings instead of world border
@@ -110,7 +122,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             }
         } catch (Exception e) {
             UHC.getInstance().getLogger().severe("Error in scatter manager: " + e.getMessage());
-            e.printStackTrace();
+            UHC.getInstance().getLogger().log(java.util.logging.Level.SEVERE, "Scatter manager error", e);
             handleError("Scatter error: " + e.getMessage());
         }
     }

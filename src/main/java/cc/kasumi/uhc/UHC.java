@@ -71,7 +71,7 @@ public final class UHC extends JavaPlugin {
                     getLogger().info("World initialization completed!");
                 } catch (Exception e) {
                     getLogger().severe("Failed to initialize worlds: " + e.getMessage());
-                    e.printStackTrace();
+                    getLogger().log(java.util.logging.Level.SEVERE, "World initialization error", e);
                 }
             }
         }.runTaskLater(this, 20L); // Run after 1 second to allow server to fully start
@@ -116,7 +116,7 @@ public final class UHC extends JavaPlugin {
 
                 } catch (Exception e) {
                     getLogger().severe("Failed to initialize game: " + e.getMessage());
-                    e.printStackTrace();
+                    getLogger().log(java.util.logging.Level.SEVERE, "Game initialization error", e);
 
                     if (attempts >= maxAttempts) {
                         getLogger().severe("Game initialization failed after " + maxAttempts + " attempts!");
@@ -221,7 +221,7 @@ public final class UHC extends JavaPlugin {
 
         } catch (Exception e) {
             getLogger().severe("Error registering listeners: " + e.getMessage());
-            e.printStackTrace();
+            getLogger().log(java.util.logging.Level.SEVERE, "Listener registration error", e);
         }
     }
 
@@ -232,7 +232,7 @@ public final class UHC extends JavaPlugin {
             getLogger().info("Managers registered successfully");
         } catch (Exception e) {
             getLogger().severe("Error registering managers: " + e.getMessage());
-            e.printStackTrace();
+            getLogger().log(java.util.logging.Level.SEVERE, "Manager registration error", e);
         }
     }
 
@@ -252,7 +252,7 @@ public final class UHC extends JavaPlugin {
             getLogger().info("Commands registered successfully");
         } catch (Exception e) {
             getLogger().severe("Error registering commands: " + e.getMessage());
-            e.printStackTrace();
+            getLogger().log(java.util.logging.Level.SEVERE, "Command registration error", e);
         }
     }
 

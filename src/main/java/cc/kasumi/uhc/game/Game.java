@@ -8,7 +8,10 @@ import cc.kasumi.uhc.game.state.ActiveGameState;
 import cc.kasumi.uhc.game.state.GameEndedState;
 import cc.kasumi.uhc.game.state.ScatteringGameState;
 import cc.kasumi.uhc.game.state.WaitingGameState;
-import cc.kasumi.uhc.game.task.*;
+import cc.kasumi.uhc.game.task.BorderShrinkTask;
+import cc.kasumi.uhc.game.task.FinalHealTask;
+import cc.kasumi.uhc.game.task.PvPEnableTask;
+import cc.kasumi.uhc.game.task.StartTask;
 import cc.kasumi.uhc.packets.NameTagManager;
 import cc.kasumi.uhc.player.PlayerState;
 import cc.kasumi.uhc.player.UHCPlayer;
@@ -21,11 +24,23 @@ import cc.kasumi.uhc.util.ProgressiveScatterManager;
 import cc.kasumi.uhc.world.WorldManager;
 import lombok.Getter;
 import lombok.Setter;
-import org.bukkit.*;
+import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
+import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.World;
+import org.bukkit.boss.BarColor;
+import org.bukkit.boss.BarStyle;
+import org.bukkit.boss.BossBar;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * Refactored Game class that uses teams as the core system
@@ -244,7 +259,7 @@ public class Game {
 
         } catch (Exception e) {
             UHC.getInstance().getLogger().severe("Error during game end: " + e.getMessage());
-            e.printStackTrace();
+            UHC.getInstance().getLogger().log(java.util.logging.Level.SEVERE, "Game end error", e);
 
             // Fallback - at least do cleanup
             try {
@@ -1087,7 +1102,7 @@ public class Game {
 
         } catch (Exception e) {
             UHC.getInstance().getLogger().severe("Error checking game end condition: " + e.getMessage());
-            e.printStackTrace();
+            UHC.getInstance().getLogger().log(java.util.logging.Level.SEVERE, "Game end condition check error", e);
 
             // Don't let this crash the game - just log the error
             // The game will continue running if there's an error in end detection
@@ -1107,7 +1122,7 @@ public class Game {
             }
         } catch (Exception e) {
             UHC.getInstance().getLogger().severe("Error determining game end result: " + e.getMessage());
-            e.printStackTrace();
+            UHC.getInstance().getLogger().log(java.util.logging.Level.SEVERE, "Game end result determination error", e);
 
             // Return continue game as fallback
             return GameEndResult.continueGame();
@@ -1144,7 +1159,7 @@ public class Game {
 
         } catch (Exception e) {
             UHC.getInstance().getLogger().severe("Error in solo game end check: " + e.getMessage());
-            e.printStackTrace();
+            UHC.getInstance().getLogger().log(java.util.logging.Level.SEVERE, "Solo game end check error", e);
             return GameEndResult.continueGame();
         }
     }
@@ -1181,7 +1196,7 @@ public class Game {
 
         } catch (Exception e) {
             UHC.getInstance().getLogger().severe("Error in team game end check: " + e.getMessage());
-            e.printStackTrace();
+            UHC.getInstance().getLogger().log(java.util.logging.Level.SEVERE, "Team game end check error", e);
             return GameEndResult.continueGame();
         }
     }

@@ -415,7 +415,7 @@ public class GameUtil {
 
         } catch (Exception e) {
             UHC.getInstance().getLogger().severe("Error during border teleportation: " + e.getMessage());
-            e.printStackTrace();
+            UHC.getInstance().getLogger().log(java.util.logging.Level.SEVERE, "Border teleportation error", e);
             return null;
         }
     }
