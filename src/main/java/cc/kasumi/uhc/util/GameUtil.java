@@ -12,7 +12,7 @@ import org.bukkit.scheduler.BukkitRunnable;
 import java.util.*;
 
 /**
- * Cleaned up GameUtil with simplified scattering removed
+ * Cleaned up GameUtil with simplified scattering removed and enhanced game border integration
  */
 public class GameUtil {
 
@@ -122,25 +122,25 @@ public class GameUtil {
     }
 
     /**
-     * Calculate safe border point with enhanced world validation
+     * Calculate safe border point using game border settings
      */
-    public static Location calculateSafeBorderPoint(Entity entity, WorldBorder border) {
-        if (entity == null || border == null) {
-            UHC.getInstance().getLogger().warning("Cannot calculate border point: null entity or border");
+    public static Location calculateSafeBorderPoint(Entity entity) {
+        if (entity == null) {
+            UHC.getInstance().getLogger().warning("Cannot calculate border point: null entity");
+            return null;
+        }
+
+        Game game = UHC.getInstance().getGame();
+        if (game == null) {
+            UHC.getInstance().getLogger().severe("Game instance is null - cannot calculate border point!");
             return null;
         }
 
         Location playerLoc = entity.getLocation();
-        Location center = border.getCenter();
+        World world = playerLoc.getWorld();
 
-        if (playerLoc.getWorld() != center.getWorld()) {
-            UHC.getInstance().getLogger().warning("Entity and border are in different worlds!");
-            return null;
-        }
-
-        // FIXED: Use centralized method instead of border.getSize()
-        Game game = UHC.getInstance().getGame();
-        double size = game.getEffectiveBorderSize();
+        // Use game border settings - assuming world center is 0,0
+        Location center = new Location(world, 0, 0, 0);
         double radius = game.getEffectiveBorderRadius();
 
         double deltaX = playerLoc.getX() - center.getX();
@@ -161,7 +161,7 @@ public class GameUtil {
                 newX = center.getX() - radius + buffer; // Left edge
             }
             newZ = Math.max(center.getZ() - radius + buffer,
-                    Math.min(center.getZ() + radius - buffer, playerLoc.getZ()));
+                    Math.min(center.getZ() + radius + buffer, playerLoc.getZ()));
         } else {
             // Teleport to top or bottom edge
             if (deltaZ > 0) {
@@ -174,7 +174,6 @@ public class GameUtil {
         }
 
         // Set safe Y coordinate with enhanced ground detection
-        World world = playerLoc.getWorld();
         Location teleportLoc = new Location(world, newX, playerLoc.getY(), newZ);
 
         // Find the highest safe block
@@ -204,7 +203,6 @@ public class GameUtil {
 
         return teleportLoc;
     }
-
 
     /**
      * Find nearest safe location within radius
@@ -236,18 +234,13 @@ public class GameUtil {
     /**
      * Start progressive border teleportation with world validation
      */
-    public static ProgressiveBorderTeleporter startProgressiveBorderTeleport(WorldBorder worldBorder, World world, CombatLogVillagerManager villagerManager) {
+    public static ProgressiveBorderTeleporter startProgressiveBorderTeleport(World world, CombatLogVillagerManager villagerManager) {
         if (world == null) {
             UHC.getInstance().getLogger().severe("Cannot start border teleport: world is null!");
             return null;
         }
 
-        if (worldBorder == null) {
-            UHC.getInstance().getLogger().severe("Cannot start border teleport: worldBorder is null!");
-            return null;
-        }
-
-        ProgressiveBorderTeleporter teleporter = new ProgressiveBorderTeleporter(worldBorder, world, villagerManager);
+        ProgressiveBorderTeleporter teleporter = new ProgressiveBorderTeleporter(world.getWorldBorder(), world, villagerManager);
         teleporter.startTeleporting();
         return teleporter;
     }
@@ -283,7 +276,7 @@ public class GameUtil {
     }
 
     /**
-     * Enhanced border shrinking with world validation
+     * Enhanced border shrinking using game border settings
      */
     public static void shrinkBorder(int size, World world) {
         if (world == null) {
@@ -339,41 +332,63 @@ public class GameUtil {
     }
 
     /**
-     * Enhanced entity in border check with world validation
+     * Enhanced entity in border check using game border settings
      */
-    public static boolean isEntityInBorder(@NonNull Entity entity, WorldBorder border) {
-        if (entity == null || border == null) {
+    public static boolean isEntityInBorder(@NonNull Entity entity) {
+        if (entity == null) {
             return true; // Assume safe if we can't check
         }
 
-        Location entityLocation = entity.getLocation();
-        Location center = border.getCenter();
-
-        if (entityLocation.getWorld() != center.getWorld()) {
-            UHC.getInstance().getLogger().warning("Entity and border in different worlds!");
-            return true; // Assume safe if different worlds
+        Game game = UHC.getInstance().getGame();
+        if (game == null) {
+            UHC.getInstance().getLogger().warning("Game instance is null - assuming entity is in border");
+            return true;
         }
 
-        // FIXED: Use centralized method instead of border.getSize()
-        Game game = UHC.getInstance().getGame();
+        Location entityLocation = entity.getLocation();
+
+        // Use game border settings consistently - assuming center at 0,0
         double radius = game.getEffectiveBorderRadius();
 
-        double deltaX = Math.abs(entityLocation.getX() - center.getX());
-        double deltaZ = Math.abs(entityLocation.getZ() - center.getZ());
+        double deltaX = Math.abs(entityLocation.getX());
+        double deltaZ = Math.abs(entityLocation.getZ());
 
         return deltaX <= radius && deltaZ <= radius;
     }
 
     /**
+     * Check if entity is within game border (same as isEntityInBorder now)
+     */
+    public static boolean isEntityWithinGameBorder(@NonNull Entity entity) {
+        return isEntityInBorder(entity);
+    }
+
+    /**
+     * Get distance from border center (assuming center at 0,0)
+     */
+    public static double getDistanceFromBorderCenter(@NonNull Entity entity) {
+        if (entity == null) {
+            return 0.0;
+        }
+
+        Location entityLocation = entity.getLocation();
+
+        double deltaX = entityLocation.getX();
+        double deltaZ = entityLocation.getZ();
+
+        return Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
+    }
+
+    /**
      * Enhanced teleport to border with better error handling and validation
      */
-    public static Location teleportToNearestBorderPoint(@NonNull Entity entity, WorldBorder border) {
-        if (entity == null || border == null) {
-            UHC.getInstance().getLogger().warning("Cannot teleport: entity or border is null");
+    public static Location teleportToNearestBorderPoint(@NonNull Entity entity) {
+        if (entity == null) {
+            UHC.getInstance().getLogger().warning("Cannot teleport: entity is null");
             return null;
         }
 
-        Location calculated = calculateSafeBorderPoint(entity, border);
+        Location calculated = calculateSafeBorderPoint(entity);
         if (calculated == null) {
             UHC.getInstance().getLogger().warning("Failed to calculate safe border point for entity: " + entity.getType());
             return null;
@@ -403,6 +418,76 @@ public class GameUtil {
             e.printStackTrace();
             return null;
         }
+    }
+
+    /**
+     * Validate that an entity needs to be teleported (is outside border)
+     */
+    public static boolean needsBorderTeleport(@NonNull Entity entity) {
+        return !isEntityInBorder(entity);
+    }
+
+    /**
+     * Debug border information
+     */
+    public static void debugBorderInfo(World world) {
+        if (world == null) {
+            UHC.getInstance().getLogger().info("Border Debug: World is null");
+            return;
+        }
+
+        Game game = UHC.getInstance().getGame();
+
+        UHC.getInstance().getLogger().info("=== Border Debug Information ===");
+        UHC.getInstance().getLogger().info("World: " + world.getName());
+
+        if (game != null) {
+            UHC.getInstance().getLogger().info("Game Border Center: (0, 0)"); // Assuming center at spawn
+            UHC.getInstance().getLogger().info("Game Border Radius: " + game.getEffectiveBorderRadius());
+            UHC.getInstance().getLogger().info("Game Border Size: " + game.getEffectiveBorderSize());
+        } else {
+            UHC.getInstance().getLogger().info("Game instance: null");
+        }
+
+        UHC.getInstance().getLogger().info("================================");
+    }
+
+    /**
+     * Get all entities outside the border
+     */
+    public static List<Entity> getEntitiesOutsideBorder(World world) {
+        List<Entity> outsideEntities = new ArrayList<>();
+
+        if (world == null) {
+            return outsideEntities;
+        }
+
+        for (Entity entity : world.getEntities()) {
+            if (!isEntityInBorder(entity)) {
+                outsideEntities.add(entity);
+            }
+        }
+
+        return outsideEntities;
+    }
+
+    /**
+     * Get all players outside the border
+     */
+    public static List<Player> getPlayersOutsideBorder(World world) {
+        List<Player> outsidePlayers = new ArrayList<>();
+
+        if (world == null) {
+            return outsidePlayers;
+        }
+
+        for (Player player : world.getPlayers()) {
+            if (!isEntityInBorder(player)) {
+                outsidePlayers.add(player);
+            }
+        }
+
+        return outsidePlayers;
     }
 
     /**

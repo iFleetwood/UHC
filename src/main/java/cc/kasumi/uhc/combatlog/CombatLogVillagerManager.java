@@ -144,7 +144,7 @@ public class CombatLogVillagerManager {
      */
     public void handleBorderShrink(WorldBorder worldBorder, World world) {
         // Use progressive teleportation to prevent lag
-        GameUtil.startProgressiveBorderTeleport(worldBorder, world, this);
+        GameUtil.startProgressiveBorderTeleport(world, this);
     }
 
     // Private helper methods
@@ -214,7 +214,7 @@ public class CombatLogVillagerManager {
         Location oldLocation = villager.getLocation().clone();
         combatLogPlayer.setMoved(true);
 
-        Location newLocation = GameUtil.teleportToNearestBorderPoint(villager, worldBorder);
+        Location newLocation = GameUtil.teleportToNearestBorderPoint(villager);
         combatLogPlayer.setLocation(newLocation);
 
         Chunk oldChunk = oldLocation.getChunk();
