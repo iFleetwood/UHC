@@ -89,8 +89,8 @@ public class ProgressiveScatterManager extends BukkitRunnable {
 
         UHC.getInstance().getLogger().info("Starting scatter for " + teamsToScatter.size() +
                 " teams using full border area (game border: " + game.getInitialBorderSize() +
-                ", effective radius: " + (int)effectiveBorderRadius + ", area: " + 
-                String.format("%.0f", effectiveBorderRadius * 2 * effectiveBorderRadius * 2) + " blocks²) in world: " +
+                ", border radius: " + (int)borderRadius + ", area: " + 
+                String.format("%.0f", borderRadius * 2 * borderRadius * 2) + " blocks²) in world: " +
                 (world != null ? world.getName() : "NULL"));
     }
 
@@ -163,8 +163,8 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         currentPhase = ScatterPhase.GENERATING_LOCATIONS;
         Bukkit.broadcastMessage(ChatColor.YELLOW + "Teams validated. Generating scatter locations...");
         UHC.getInstance().getLogger().info("Team validation completed. Found " + teamsToScatter.size() +
-                " valid teams to scatter using full border area (effective radius: " + (int)effectiveBorderRadius + 
-                ", area: " + String.format("%.0f", effectiveBorderRadius * 2 * effectiveBorderRadius * 2) + " blocks²)");
+                " valid teams to scatter using full border area (border radius: " + (int)borderRadius + 
+                ", area: " + String.format("%.0f", borderRadius * 2 * borderRadius * 2) + " blocks²)");
     }
 
     private void generateTeamLocations() {
@@ -311,7 +311,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
     private Location findLocationNearCenter(Random random, int maxRadius) {
         for (int attempt = 0; attempt < 20; attempt++) {
             // Use a smaller area near center for fallback
-            double actualMaxRadius = Math.min(maxRadius, effectiveBorderRadius / 2);
+            double actualMaxRadius = Math.min(maxRadius, borderRadius / 2);
             
             int x = (int) (borderCenter.getX() + (random.nextDouble() * 2 - 1) * actualMaxRadius);
             int z = (int) (borderCenter.getZ() + (random.nextDouble() * 2 - 1) * actualMaxRadius);
@@ -329,9 +329,9 @@ public class ProgressiveScatterManager extends BukkitRunnable {
 
     private Location findLocationWithReducedRequirements(Random random) {
         for (int attempt = 0; attempt < 30; attempt++) {
-            // Use full border area instead of just a circle
-            double maxX = effectiveBorderRadius;
-            double maxZ = effectiveBorderRadius;
+            // Use actual border radius instead of effective border radius
+            double maxX = borderRadius;
+            double maxZ = borderRadius;
             
             int x = (int) (borderCenter.getX() + (random.nextDouble() * 2 - 1) * maxX);
             int z = (int) (borderCenter.getZ() + (random.nextDouble() * 2 - 1) * maxZ);
@@ -362,8 +362,8 @@ public class ProgressiveScatterManager extends BukkitRunnable {
                 Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
 
                 // FIXED: Check if within game border instead of world border
-                if (Math.abs(x - borderCenter.getX()) > effectiveBorderRadius ||
-                        Math.abs(z - borderCenter.getZ()) > effectiveBorderRadius) {
+                if (Math.abs(x - borderCenter.getX()) > borderRadius ||
+                        Math.abs(z - borderCenter.getZ()) > borderRadius) {
                     continue;
                 }
 
@@ -481,10 +481,10 @@ public class ProgressiveScatterManager extends BukkitRunnable {
 
     private Location generateRandomLocation(Random random) {
         try {
-            // FIXED: Use full border area instead of just a circle
+            // FIXED: Use actual border radius instead of effective border radius
             // Generate random coordinates within the full border area
-            double maxX = effectiveBorderRadius;
-            double maxZ = effectiveBorderRadius;
+            double maxX = borderRadius;
+            double maxZ = borderRadius;
             
             int x = (int) (borderCenter.getX() + (random.nextDouble() * 2 - 1) * maxX);
             int z = (int) (borderCenter.getZ() + (random.nextDouble() * 2 - 1) * maxZ);
@@ -540,17 +540,17 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             double centerX = borderCenter.getX();
             double centerZ = borderCenter.getZ();
 
-            // Calculate grid parameters using effective radius
+            // Calculate grid parameters using actual border radius
             int gridSize = (int) Math.ceil(Math.sqrt(totalTeams));
-            double gridSpacing = (effectiveBorderRadius * 2) / (gridSize + 1);
+            double gridSpacing = (borderRadius * 2) / (gridSize + 1);
 
             // Calculate grid position
             int gridX = teamIndex % gridSize;
             int gridZ = teamIndex / gridSize;
 
             // Calculate base position
-            double baseX = centerX - effectiveBorderRadius + (gridX + 1) * gridSpacing;
-            double baseZ = centerZ - effectiveBorderRadius + (gridZ + 1) * gridSpacing;
+            double baseX = centerX - borderRadius + (gridX + 1) * gridSpacing;
+            double baseZ = centerZ - borderRadius + (gridZ + 1) * gridSpacing;
 
             // Add random offset within grid cell
             double offsetRange = gridSpacing * 0.3; // 30% of grid spacing
@@ -888,8 +888,8 @@ public class ProgressiveScatterManager extends BukkitRunnable {
                     ", Max: " + String.format("%.1f", maxDistance) +
                     ", Average: " + String.format("%.1f", averageDistance));
             UHC.getInstance().getLogger().info("Game border size: " + game.getInitialBorderSize() +
-                    ", Effective radius: " + String.format("%.1f", effectiveBorderRadius) +
-                    ", Scatter area: " + String.format("%.0f", effectiveBorderRadius * 2 * effectiveBorderRadius * 2) + " blocks²");
+                    ", Border radius: " + String.format("%.1f", borderRadius) +
+                    ", Scatter area: " + String.format("%.0f", borderRadius * 2 * borderRadius * 2) + " blocks²");
             UHC.getInstance().getLogger().info("====================================");
         }
     }
