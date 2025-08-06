@@ -70,13 +70,13 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         this.borderRadius = game.getInitialBorderSize() / 2.0; // Use game's initial border size
         this.effectiveBorderRadius = borderRadius - SAFETY_BUFFER_FROM_BORDER;
 
-        // Calculate safe scatter radius
-        this.radius = Math.max(150, Math.min(requestedRadius, (int) effectiveBorderRadius));
+        // Use effective border radius for scattering to utilize full border area
+        this.radius = (int) effectiveBorderRadius;
 
         this.teamsToScatter = getValidTeamsToScatter();
 
         UHC.getInstance().getLogger().info("Starting scatter for " + teamsToScatter.size() +
-                " teams with radius " + this.radius + " (game border: " + game.getInitialBorderSize() +
+                " teams using full border area (game border: " + game.getInitialBorderSize() +
                 ", effective radius: " + (int)effectiveBorderRadius + ") in world: " +
                 (world != null ? world.getName() : "NULL"));
     }
@@ -135,13 +135,11 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         UHC.getInstance().getLogger().info("Border validation: Game border size = " + game.getInitialBorderSize() +
                 ", Border radius = " + (int)borderRadius +
                 ", Effective radius = " + (int)effectiveBorderRadius +
-                ", Scatter radius = " + radius);
+                ", Using full border area for scattering");
 
-        if (effectiveBorderRadius < radius) {
+        if (effectiveBorderRadius < 100) {
             UHC.getInstance().getLogger().warning("Game border (" + game.getInitialBorderSize() +
-                    ") is too small for scatter radius (" + radius + "), adjusting...");
-            radius = Math.max(100, (int) effectiveBorderRadius);
-            UHC.getInstance().getLogger().info("Adjusted scatter radius to: " + radius);
+                    ") is very small for effective scattering (effective radius: " + (int)effectiveBorderRadius + ")");
         }
 
         // Initialize scatter attempts tracking
@@ -152,7 +150,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         currentPhase = ScatterPhase.GENERATING_LOCATIONS;
         Bukkit.broadcastMessage(ChatColor.YELLOW + "Teams validated. Generating scatter locations...");
         UHC.getInstance().getLogger().info("Team validation completed. Found " + teamsToScatter.size() +
-                " valid teams to scatter with radius: " + radius);
+                " valid teams to scatter using full border area (effective radius: " + (int)effectiveBorderRadius + ")");
     }
 
     private void generateTeamLocations() {
@@ -299,7 +297,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
     private Location findLocationNearCenter(Random random, int maxRadius) {
         for (int attempt = 0; attempt < 20; attempt++) {
             double angle = random.nextDouble() * 2 * Math.PI;
-            double distance = random.nextDouble() * Math.min(maxRadius, radius / 2);
+            double distance = random.nextDouble() * Math.min(maxRadius, effectiveBorderRadius / 2);
 
             int x = (int) (borderCenter.getX() + distance * Math.cos(angle));
             int z = (int) (borderCenter.getZ() + distance * Math.sin(angle));
@@ -318,7 +316,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
     private Location findLocationWithReducedRequirements(Random random) {
         for (int attempt = 0; attempt < 30; attempt++) {
             double angle = random.nextDouble() * 2 * Math.PI;
-            double distance = random.nextDouble() * radius;
+            double distance = random.nextDouble() * effectiveBorderRadius;
 
             int x = (int) (borderCenter.getX() + distance * Math.cos(angle));
             int z = (int) (borderCenter.getZ() + distance * Math.sin(angle));
@@ -468,9 +466,9 @@ public class ProgressiveScatterManager extends BukkitRunnable {
 
     private Location generateRandomLocation(Random random) {
         try {
-            // FIXED: Use game border center instead of world border center
+            // FIXED: Use effective border radius to utilize full border area
             double angle = random.nextDouble() * 2 * Math.PI;
-            double distance = random.nextDouble() * radius;
+            double distance = random.nextDouble() * effectiveBorderRadius;
 
             int x = (int) (borderCenter.getX() + distance * Math.cos(angle));
             int z = (int) (borderCenter.getZ() + distance * Math.sin(angle));
@@ -875,7 +873,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
                     ", Average: " + String.format("%.1f", averageDistance));
             UHC.getInstance().getLogger().info("Game border size: " + game.getInitialBorderSize() +
                     ", Effective radius: " + String.format("%.1f", effectiveBorderRadius) +
-                    ", Scatter radius used: " + radius);
+                    ", Using full border area for scattering");
             UHC.getInstance().getLogger().info("====================================");
         }
     }
@@ -997,7 +995,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         }
 
         return new ScatterStatistics(successful, failed, totalAttempts, mostCommonFailure,
-                radius, MIN_DISTANCE_BETWEEN_TEAMS);
+                (int)effectiveBorderRadius, MIN_DISTANCE_BETWEEN_TEAMS);
     }
 
     public static class ScatterStatistics {
