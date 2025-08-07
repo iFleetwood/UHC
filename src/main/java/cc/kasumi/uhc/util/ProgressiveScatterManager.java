@@ -757,11 +757,13 @@ public class ProgressiveScatterManager extends BukkitRunnable {
                     // Start game
                     game.startGame();
                     
+                    // Cancel this countdown task
                     cancel();
                 }
             }
         }.runTaskTimer(UHC.getInstance(), 20L, 20L); // Start after 1 second, run every second
         
+        // Cancel the main scatter task
         cancel();
     }
     
@@ -834,9 +836,12 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         this.cancelled = true;
         super.cancel();
         
-        // Clean up freeze manager
-        if (freezeManager != null) {
-            freezeManager.cleanup();
+        // Don't clean up freeze manager here - it's handled in the countdown
+        // Only clean up if we're cancelling due to error/failure
+        if (currentPhase == ScatterPhase.FAILED) {
+            if (freezeManager != null) {
+                freezeManager.cleanup();
+            }
         }
         
         // Keep chunks loaded for a bit longer
