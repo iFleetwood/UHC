@@ -176,6 +176,63 @@ public class WorldCommand extends BaseCommand {
         }
     }
 
+    @Subcommand("setspawn")
+    @Description("Set the spawn location for the UHC world")
+    public void onSetSpawn(Player player) {
+        WorldManager worldManager = UHC.getInstance().getWorldManager();
+
+        if (worldManager == null) {
+            player.sendMessage(ChatColor.RED + "WorldManager is not available!");
+            return;
+        }
+
+        World uhcWorld = worldManager.getUhcWorld();
+
+        if (uhcWorld == null) {
+            player.sendMessage(ChatColor.RED + "UHC world not found! Create it first with /world create");
+            return;
+        }
+
+        // Check if player is in the UHC world
+        if (!player.getWorld().equals(uhcWorld)) {
+            player.sendMessage(ChatColor.RED + "You must be in the UHC world to set its spawn!");
+            player.sendMessage(ChatColor.YELLOW + "Use /world tp uhc to go there first.");
+            return;
+        }
+
+        try {
+            // Get player's current location
+            org.bukkit.Location playerLocation = player.getLocation();
+            
+            // Set the spawn location
+            uhcWorld.setSpawnLocation(
+                playerLocation.getBlockX(),
+                playerLocation.getBlockY(),
+                playerLocation.getBlockZ()
+            );
+            
+            // Format the location for display
+            String locationStr = String.format("X: %d, Y: %d, Z: %d", 
+                playerLocation.getBlockX(),
+                playerLocation.getBlockY(),
+                playerLocation.getBlockZ()
+            );
+            
+            player.sendMessage(ChatColor.GREEN + "UHC world spawn set to your location!");
+            player.sendMessage(ChatColor.GRAY + "New spawn: " + locationStr);
+            
+            // If game is initialized, update its spawn reference
+            if (UHC.getInstance().getGame() != null) {
+                UHC.getInstance().getGame().refreshWorldReference();
+                player.sendMessage(ChatColor.GRAY + "Game spawn reference updated.");
+            }
+            
+        } catch (Exception e) {
+            player.sendMessage(ChatColor.RED + "Failed to set spawn: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
     @Subcommand("caves")
     @Description("Configure cave generation settings")
     public void onCaves(CommandSender sender, boolean enabled, @Default("55") int cutoff,
@@ -504,6 +561,7 @@ public class WorldCommand extends BaseCommand {
         sender.sendMessage(ChatColor.YELLOW + "/world pregenerate [radius]" + ChatColor.GRAY + " - Pregenerate chunks");
         sender.sendMessage(ChatColor.YELLOW + "/world tp uhc" + ChatColor.GRAY + " - Teleport to UHC world");
         sender.sendMessage(ChatColor.YELLOW + "/world tp lobby" + ChatColor.GRAY + " - Teleport to lobby");
+        sender.sendMessage(ChatColor.YELLOW + "/world setspawn" + ChatColor.GRAY + " - Set UHC world spawn to your location");
         sender.sendMessage(ChatColor.YELLOW + "/world caves <enabled> [settings...]" + ChatColor.GRAY + " - Configure caves");
         sender.sendMessage(ChatColor.YELLOW + "/world info" + ChatColor.GRAY + " - Show world information");
         sender.sendMessage(ChatColor.YELLOW + "/world settings" + ChatColor.GRAY + " - Show generation settings");
