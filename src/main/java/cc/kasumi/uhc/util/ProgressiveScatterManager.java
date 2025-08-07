@@ -41,8 +41,8 @@ public class ProgressiveScatterManager extends BukkitRunnable {
     private static final int LOCATIONS_PER_TICK = 2; // Generate 2 locations per tick
     private static final int CHUNKS_PER_TICK = 3; // Preload 3 chunks per tick
     private static final int TELEPORTS_PER_TICK = 1; // Teleport 1 team per tick
-    private static final int MIN_DISTANCE_BETWEEN_TEAMS = 200; // Minimum distance between teams
-    private static final int MIN_DISTANCE_FROM_PLAYERS = 300; // Minimum distance from existing players
+    private static final int MIN_DISTANCE_BETWEEN_TEAMS = 150; // Minimum distance between teams
+    private static final int MIN_DISTANCE_FROM_PLAYERS = 100; // Minimum distance from existing players (reduced for testing)
     private static final int MAX_TEAM_SPREAD = 20; // Maximum spread for team members
     private static final int MAX_ATTEMPTS_PER_LOCATION = 100; // Maximum attempts to find a location
     private static final double BUFFER_PERCENTAGE = 0.05; // 5% buffer from border
@@ -148,6 +148,15 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             return;
         }
         
+        // Log initialization details
+        UHC.getInstance().getLogger().info("=== ProgressiveScatter Initialization ===");
+        UHC.getInstance().getLogger().info("World: " + world.getName());
+        UHC.getInstance().getLogger().info("Border radius: " + borderRadius);
+        UHC.getInstance().getLogger().info("Buffer from border: " + bufferFromBorder);
+        UHC.getInstance().getLogger().info("Usable radius: " + (borderRadius - bufferFromBorder));
+        UHC.getInstance().getLogger().info("Min distance between teams: " + MIN_DISTANCE_BETWEEN_TEAMS);
+        UHC.getInstance().getLogger().info("Min distance from players: " + MIN_DISTANCE_FROM_PLAYERS);
+        
         // Collect valid teams
         for (UHCTeam team : game.getTeamManager().getAllTeams()) {
             if (team.getSize() > 0 && !team.getOnlineMembers().isEmpty()) {
@@ -162,6 +171,16 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         }
         
         UHC.getInstance().getLogger().info("Found " + teamsToScatter.size() + " teams to scatter");
+        
+        // Log online players
+        int onlinePlayers = Bukkit.getOnlinePlayers().size();
+        UHC.getInstance().getLogger().info("Online players: " + onlinePlayers);
+        if (onlinePlayers > 0) {
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                UHC.getInstance().getLogger().info("  - " + p.getName() + " at " + formatLocation(p.getLocation()));
+            }
+        }
+        
         currentPhase = ScatterPhase.VALIDATING_TEAMS;
     }
     
@@ -233,7 +252,9 @@ public class ProgressiveScatterManager extends BukkitRunnable {
                     .count();
             
             if (successful == 0) {
-                handleError("Failed to generate any scatter locations!");
+                // Try with reduced requirements before giving up
+                UHC.getInstance().getLogger().warning("No locations found with standard requirements. Trying with reduced constraints...");
+                attemptFallbackScatter();
                 return;
             }
             
@@ -244,6 +265,125 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             chunkIterator = chunksToPreload.iterator();
             totalChunksToPreload = chunksToPreload.size();
         }
+    }
+    
+    private void attemptFallbackScatter() {
+        UHC.getInstance().getLogger().info("Attempting fallback scatter with reduced requirements...");
+        Random random = new Random();
+        int successfulFallbacks = 0;
+        
+        for (UHCTeam team : teamsToScatter) {
+            ScatterAttempt attempt = scatterAttempts.get(team.getTeamId());
+            if (!attempt.successful) {
+                // Try with progressively reduced requirements
+                Location location = findFallbackLocation(team, random);
+                if (location != null) {
+                    teamScatterLocations.put(team.getTeamId(), location);
+                    attempt.successful = true;
+                    attempt.finalLocation = location;
+                    addChunksToPreload(location);
+                    successfulFallbacks++;
+                    UHC.getInstance().getLogger().info("Fallback location found for team " + team.getTeamName());
+                }
+            }
+        }
+        
+        int totalSuccessful = (int) scatterAttempts.values().stream()
+                .filter(a -> a.successful)
+                .count();
+        
+        if (totalSuccessful == 0) {
+            handleError("Failed to generate any scatter locations even with fallback!");
+            return;
+        }
+        
+        Bukkit.broadcastMessage(ChatColor.YELLOW + "Generated " + totalSuccessful + "/" + 
+                teamsToScatter.size() + " team locations (including " + successfulFallbacks + " fallbacks). Preloading chunks...");
+        
+        currentPhase = ScatterPhase.PRELOADING_CHUNKS;
+        chunkIterator = chunksToPreload.iterator();
+        totalChunksToPreload = chunksToPreload.size();
+    }
+    
+    private Location findFallbackLocation(UHCTeam team, Random random) {
+        // Try with reduced player distance
+        for (int i = 0; i < 20; i++) {
+            Location loc = generateRandomLocation(random, borderRadius - bufferFromBorder);
+            if (loc != null && GameUtil.isLocationSafe(loc) && 
+                isLocationValidWithReducedRequirements(loc, 50, 50)) {
+                return loc;
+            }
+        }
+        
+        // Try with even more reduced requirements
+        for (int i = 0; i < 20; i++) {
+            Location loc = generateRandomLocation(random, borderRadius - bufferFromBorder);
+            if (loc != null && GameUtil.isLocationSafe(loc) && 
+                isLocationValidWithReducedRequirements(loc, 30, 0)) {
+                return loc;
+            }
+        }
+        
+        // Last resort - just find any safe location
+        for (int i = 0; i < 30; i++) {
+            Location loc = generateRandomLocation(random, borderRadius * 0.8);
+            if (loc != null && GameUtil.isLocationSafe(loc)) {
+                return loc;
+            }
+        }
+        
+        return null;
+    }
+    
+    private Location generateRandomLocation(Random random, double maxRadius) {
+        double x = (random.nextDouble() * 2 - 1) * maxRadius;
+        double z = (random.nextDouble() * 2 - 1) * maxRadius;
+        
+        Location candidate = new Location(world, x, 0, z);
+        int y = world.getHighestBlockYAt(candidate);
+        
+        // Ensure Y is reasonable
+        if (y < 1) {
+            y = 64; // Default to sea level if something is wrong
+        } else if (y > 250) {
+            y = 250; // Cap at reasonable height
+        }
+        
+        candidate.setY(y + 1);
+        
+        return candidate;
+    }
+    
+    private boolean isLocationValidWithReducedRequirements(Location location, int minTeamDistance, int minPlayerDistance) {
+        // Check distance from border
+        double distanceFromCenter = Math.max(
+            Math.abs(location.getX()),
+            Math.abs(location.getZ())
+        );
+        if (distanceFromCenter > borderRadius - bufferFromBorder) {
+            return false;
+        }
+        
+        // Check distance from other teams with reduced requirement
+        if (minTeamDistance > 0) {
+            for (Location existingLocation : teamScatterLocations.values()) {
+                if (location.distance(existingLocation) < minTeamDistance) {
+                    return false;
+                }
+            }
+        }
+        
+        // Check distance from online players with reduced requirement
+        if (minPlayerDistance > 0) {
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                if (player.getWorld().equals(world) && 
+                    player.getLocation().distance(location) < minPlayerDistance) {
+                    return false;
+                }
+            }
+        }
+        
+        return true;
     }
     
     private Location findValidLocation(UHCTeam team, Random random) {
@@ -259,7 +399,22 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             
             Location candidate = new Location(world, x, 0, z);
             int y = world.getHighestBlockYAt(candidate);
+            
+            // Ensure Y is reasonable
+            if (y < 1) {
+                y = 64; // Default to sea level if something is wrong
+            } else if (y > 250) {
+                y = 250; // Cap at reasonable height
+            }
+            
             candidate.setY(y + 1);
+            
+            // Debug logging
+            if (attempt.attempts <= 5 || attempt.attempts % 10 == 0) {
+                UHC.getInstance().getLogger().info("Attempt " + attempt.attempts + " for team " + team.getTeamName() + 
+                        ": Testing location " + formatLocation(candidate) + 
+                        " (usable radius: " + String.format("%.1f", usableRadius) + ")");
+            }
             
             // Validate location
             if (isLocationValid(candidate)) {
@@ -267,12 +422,20 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             }
         }
         
+        // Log failure details
+        UHC.getInstance().getLogger().warning("Failed to find location for team " + team.getTeamName() + 
+                " after " + attempt.attempts + " attempts. Border radius: " + borderRadius + 
+                ", buffer: " + bufferFromBorder);
+        
         return null;
     }
     
     private boolean isLocationValid(Location location) {
         // Check if location is safe
         if (!GameUtil.isLocationSafe(location)) {
+            if (scatterAttempts.values().stream().mapToInt(a -> a.attempts).sum() <= 20) {
+                UHC.getInstance().getLogger().fine("Location " + formatLocation(location) + " is not safe");
+            }
             return false;
         }
         
@@ -282,12 +445,23 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             Math.abs(location.getZ())
         );
         if (distanceFromCenter > borderRadius - bufferFromBorder) {
+            if (scatterAttempts.values().stream().mapToInt(a -> a.attempts).sum() <= 20) {
+                UHC.getInstance().getLogger().fine("Location " + formatLocation(location) + 
+                        " too close to border (distance: " + String.format("%.1f", distanceFromCenter) + 
+                        ", max: " + String.format("%.1f", borderRadius - bufferFromBorder) + ")");
+            }
             return false;
         }
         
         // Check distance from other teams
         for (Location existingLocation : teamScatterLocations.values()) {
-            if (location.distance(existingLocation) < MIN_DISTANCE_BETWEEN_TEAMS) {
+            double distance = location.distance(existingLocation);
+            if (distance < MIN_DISTANCE_BETWEEN_TEAMS) {
+                if (scatterAttempts.values().stream().mapToInt(a -> a.attempts).sum() <= 20) {
+                    UHC.getInstance().getLogger().fine("Location " + formatLocation(location) + 
+                            " too close to another team (distance: " + String.format("%.1f", distance) + 
+                            ", min: " + MIN_DISTANCE_BETWEEN_TEAMS + ")");
+                }
                 return false;
             }
         }
@@ -296,6 +470,12 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         for (Player player : Bukkit.getOnlinePlayers()) {
             if (player.getWorld().equals(world) && 
                 player.getLocation().distance(location) < MIN_DISTANCE_FROM_PLAYERS) {
+                if (scatterAttempts.values().stream().mapToInt(a -> a.attempts).sum() <= 20) {
+                    UHC.getInstance().getLogger().fine("Location " + formatLocation(location) + 
+                            " too close to player " + player.getName() + " (distance: " + 
+                            String.format("%.1f", player.getLocation().distance(location)) + 
+                            ", min: " + MIN_DISTANCE_FROM_PLAYERS + ")");
+                }
                 return false;
             }
         }
