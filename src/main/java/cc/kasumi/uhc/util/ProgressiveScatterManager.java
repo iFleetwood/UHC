@@ -452,12 +452,11 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             }
         }
 
-        // FIXED: Use circular boundary check
-        double deltaX = location.getX() - borderCenter.getX();
-        double deltaZ = location.getZ() - borderCenter.getZ();
-        double distanceFromCenter = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
+        // Check if within square border
+        double deltaX = Math.abs(location.getX() - borderCenter.getX());
+        double deltaZ = Math.abs(location.getZ() - borderCenter.getZ());
 
-        return distanceFromCenter <= effectiveBorderRadius;
+        return deltaX <= effectiveBorderRadius && deltaZ <= effectiveBorderRadius;
     }
 
     private Location findValidTeamLocation(Random random, UHCTeam team, ScatterAttempt attempt) {
@@ -554,16 +553,15 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             }
         }
 
-        // FIXED: Use circular boundary check instead of square
-        double deltaX = location.getX() - borderCenter.getX();
-        double deltaZ = location.getZ() - borderCenter.getZ();
-        double distanceFromCenter = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
+        // Check if within square border
+        double deltaX = Math.abs(location.getX() - borderCenter.getX());
+        double deltaZ = Math.abs(location.getZ() - borderCenter.getZ());
 
-        boolean withinBorder = distanceFromCenter <= effectiveBorderRadius;
+        boolean withinBorder = deltaX <= effectiveBorderRadius && deltaZ <= effectiveBorderRadius;
 
         if (!withinBorder) {
-            UHC.getInstance().getLogger().fine("Location outside game border: distance=" +
-                    String.format("%.1f", distanceFromCenter) +
+            UHC.getInstance().getLogger().fine("Location outside game border: deltaX=" +
+                    String.format("%.1f", deltaX) + ", deltaZ=" + String.format("%.1f", deltaZ) +
                     ", effectiveRadius=" + String.format("%.1f", effectiveBorderRadius) +
                     " (game border: " + game.getInitialBorderSize() + ")");
         }
