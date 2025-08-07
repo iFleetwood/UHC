@@ -185,13 +185,11 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             }
         }
         
-        // Freeze all players before starting scatter
+        // Announce scatter start
         Bukkit.broadcastMessage(ChatColor.GOLD + "§l§m                                                ");
         Bukkit.broadcastMessage(ChatColor.GOLD + "§lSCATTERING PLAYERS!");
-        Bukkit.broadcastMessage(ChatColor.YELLOW + "You will be frozen until scatter completes.");
+        Bukkit.broadcastMessage(ChatColor.YELLOW + "You will be frozen after being teleported.");
         Bukkit.broadcastMessage(ChatColor.GOLD + "§l§m                                                ");
-        
-        freezeManager.freezeAllPlayers();
         
         currentPhase = ScatterPhase.VALIDATING_TEAMS;
     }
@@ -636,8 +634,16 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             // Solo team
             Player player = members.get(0);
             player.teleport(teamCenter);
-            player.sendMessage(ChatColor.GREEN + "You have been scattered!");
-            player.sendMessage(ChatColor.YELLOW + "You will remain frozen until all teams are scattered.");
+            
+            // Freeze player after teleport
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    freezeManager.freezePlayer(player);
+                    player.sendMessage(ChatColor.GREEN + "You have been scattered!");
+                    player.sendMessage(ChatColor.YELLOW + "You are now frozen until all teams are scattered.");
+                }
+            }.runTaskLater(UHC.getInstance(), 2L); // Small delay to ensure teleport completes
         } else {
             // Multiple members - scatter around center
             List<Location> memberLocations = generateTeamMemberLocations(teamCenter, members.size());
@@ -646,8 +652,16 @@ public class ProgressiveScatterManager extends BukkitRunnable {
                 Player player = members.get(i);
                 Location loc = i < memberLocations.size() ? memberLocations.get(i) : teamCenter;
                 player.teleport(loc);
-                player.sendMessage(ChatColor.GREEN + "You have been scattered with your team!");
-                player.sendMessage(ChatColor.YELLOW + "You will remain frozen until all teams are scattered.");
+                
+                // Freeze each player after teleport
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        freezeManager.freezePlayer(player);
+                        player.sendMessage(ChatColor.GREEN + "You have been scattered with your team!");
+                        player.sendMessage(ChatColor.YELLOW + "You are now frozen until all teams are scattered.");
+                    }
+                }.runTaskLater(UHC.getInstance(), 2L); // Small delay to ensure teleport completes
             }
             
             team.sendMessage(ChatColor.YELLOW + "Your team has been scattered together!");
