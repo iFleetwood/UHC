@@ -50,7 +50,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
     private static final int MIN_DISTANCE_BETWEEN_TEAMS = 150;
     private static final int MAX_TEAM_SPREAD = 25;
     private static final int MAX_ATTEMPTS_PER_LOCATION = 50;
-    private static final int SAFETY_BUFFER_FROM_BORDER = 100;
+    private static final int SAFETY_BUFFER_FROM_BORDER = 50; // Reduced buffer since we use circular boundaries
     private static final int FALLBACK_ATTEMPTS = 10;
 
     public enum ScatterPhase {
@@ -368,9 +368,10 @@ public class ProgressiveScatterManager extends BukkitRunnable {
 
                 Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
 
-                // Check if within game border
-                if (Math.abs(x - borderCenter.getX()) > borderRadius ||
-                        Math.abs(z - borderCenter.getZ()) > borderRadius) {
+                // Check if within game border (circular check)
+                double distance = Math.sqrt(Math.pow(x - borderCenter.getX(), 2) + 
+                        Math.pow(z - borderCenter.getZ(), 2));
+                if (distance > borderRadius) {
                     continue;
                 }
 
@@ -402,9 +403,10 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             int x = (int) (borderCenter.getX() + distance * Math.cos(angle));
             int z = (int) (borderCenter.getZ() + distance * Math.sin(angle));
 
-            // Check if within border
-            if (Math.abs(x - borderCenter.getX()) > borderRadius ||
-                    Math.abs(z - borderCenter.getZ()) > borderRadius) {
+            // Check if within border (circular check)
+            double dist = Math.sqrt(Math.pow(x - borderCenter.getX(), 2) + 
+                    Math.pow(z - borderCenter.getZ(), 2));
+            if (dist > borderRadius) {
                 continue;
             }
 
@@ -450,11 +452,12 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             }
         }
 
-        // FIXED: Check if within game border instead of world border
-        double deltaX = Math.abs(location.getX() - borderCenter.getX());
-        double deltaZ = Math.abs(location.getZ() - borderCenter.getZ());
+        // FIXED: Use circular boundary check
+        double deltaX = location.getX() - borderCenter.getX();
+        double deltaZ = location.getZ() - borderCenter.getZ();
+        double distanceFromCenter = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
 
-        return deltaX <= effectiveBorderRadius && deltaZ <= effectiveBorderRadius;
+        return distanceFromCenter <= effectiveBorderRadius;
     }
 
     private Location findValidTeamLocation(Random random, UHCTeam team, ScatterAttempt attempt) {
@@ -551,15 +554,16 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             }
         }
 
-        // FIXED: Use game border center and radius instead of world border
-        double deltaX = Math.abs(location.getX() - borderCenter.getX());
-        double deltaZ = Math.abs(location.getZ() - borderCenter.getZ());
+        // FIXED: Use circular boundary check instead of square
+        double deltaX = location.getX() - borderCenter.getX();
+        double deltaZ = location.getZ() - borderCenter.getZ();
+        double distanceFromCenter = Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
 
-        boolean withinBorder = deltaX <= effectiveBorderRadius && deltaZ <= effectiveBorderRadius;
+        boolean withinBorder = distanceFromCenter <= effectiveBorderRadius;
 
         if (!withinBorder) {
-            UHC.getInstance().getLogger().fine("Location outside game border: deltaX=" +
-                    String.format("%.1f", deltaX) + ", deltaZ=" + String.format("%.1f", deltaZ) +
+            UHC.getInstance().getLogger().fine("Location outside game border: distance=" +
+                    String.format("%.1f", distanceFromCenter) +
                     ", effectiveRadius=" + String.format("%.1f", effectiveBorderRadius) +
                     " (game border: " + game.getInitialBorderSize() + ")");
         }
