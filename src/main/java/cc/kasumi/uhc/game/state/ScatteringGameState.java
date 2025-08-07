@@ -4,12 +4,16 @@ import cc.kasumi.uhc.game.Game;
 import cc.kasumi.uhc.game.GameState;
 import cc.kasumi.uhc.player.PlayerState;
 import cc.kasumi.uhc.player.UHCPlayer;
+import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
 import java.util.UUID;
@@ -31,6 +35,10 @@ public class ScatteringGameState extends GameState {
 
         UHCPlayer uhcPlayer = game.getUHCPlayer(uuid);
         uhcPlayer.setPlayerStateAndManage(PlayerState.SPECTATING);
+        
+        // Inform them about ongoing scatter
+        player.sendMessage(ChatColor.YELLOW + "§lScatter is in progress! You are now spectating.");
+        player.sendMessage(ChatColor.GRAY + "The game will start once all teams are scattered.");
     }
 
     @EventHandler
@@ -55,6 +63,22 @@ public class ScatteringGameState extends GameState {
 
     @EventHandler
     public void onBlockPlace(BlockPlaceEvent event) {
+        event.setCancelled(true);
+    }
+    
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onPlayerMove(PlayerMoveEvent event) {
+        // Prevent any movement during scatter
+        if (event.getFrom().getX() != event.getTo().getX() ||
+            event.getFrom().getY() != event.getTo().getY() ||
+            event.getFrom().getZ() != event.getTo().getZ()) {
+            event.setCancelled(true);
+        }
+    }
+    
+    @EventHandler
+    public void onPlayerInteract(PlayerInteractEvent event) {
+        // Prevent all interactions during scatter
         event.setCancelled(true);
     }
 }

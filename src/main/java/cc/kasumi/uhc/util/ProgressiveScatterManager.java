@@ -24,6 +24,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
     private final double borderRadius;
     private final double bufferFromBorder;
     private final List<UHCTeam> teamsToScatter;
+    private final PlayerFreezeManager freezeManager;
     
     // Scatter locations and chunk management
     private final Map<UUID, Location> teamScatterLocations = new ConcurrentHashMap<>();
@@ -101,6 +102,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         this.bufferFromBorder = borderRadius * BUFFER_PERCENTAGE;
         this.teamsToScatter = new ArrayList<>();
         this.startTime = System.currentTimeMillis();
+        this.freezeManager = new PlayerFreezeManager();
         
         UHC.getInstance().getLogger().info("Initializing ProgressiveScatter with border radius: " + borderRadius + 
                 " (usable area: ±" + (borderRadius - bufferFromBorder) + " blocks)");
@@ -184,6 +186,14 @@ public class ProgressiveScatterManager extends BukkitRunnable {
                 UHC.getInstance().getLogger().info("  - " + p.getName() + " at " + formatLocation(p.getLocation()));
             }
         }
+        
+        // Freeze all players before starting scatter
+        Bukkit.broadcastMessage(ChatColor.GOLD + "§l§m                                                ");
+        Bukkit.broadcastMessage(ChatColor.GOLD + "§lSCATTERING PLAYERS!");
+        Bukkit.broadcastMessage(ChatColor.YELLOW + "You will be frozen until scatter completes.");
+        Bukkit.broadcastMessage(ChatColor.GOLD + "§l§m                                                ");
+        
+        freezeManager.freezeAllPlayers();
         
         currentPhase = ScatterPhase.VALIDATING_TEAMS;
     }
@@ -626,16 +636,20 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         
         if (members.size() == 1) {
             // Solo team
-            members.get(0).teleport(teamCenter);
-            members.get(0).sendMessage(ChatColor.GREEN + "You have been scattered!");
+            Player player = members.get(0);
+            player.teleport(teamCenter);
+            player.sendMessage(ChatColor.GREEN + "You have been scattered!");
+            player.sendMessage(ChatColor.YELLOW + "You will remain frozen until all teams are scattered.");
         } else {
             // Multiple members - scatter around center
             List<Location> memberLocations = generateTeamMemberLocations(teamCenter, members.size());
             
             for (int i = 0; i < members.size(); i++) {
+                Player player = members.get(i);
                 Location loc = i < memberLocations.size() ? memberLocations.get(i) : teamCenter;
-                members.get(i).teleport(loc);
-                members.get(i).sendMessage(ChatColor.GREEN + "You have been scattered with your team!");
+                player.teleport(loc);
+                player.sendMessage(ChatColor.GREEN + "You have been scattered with your team!");
+                player.sendMessage(ChatColor.YELLOW + "You will remain frozen until all teams are scattered.");
             }
             
             team.sendMessage(ChatColor.YELLOW + "Your team has been scattered together!");
@@ -694,24 +708,56 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         UHC.getInstance().getLogger().info("Scatter completed in " + duration + "ms");
         logScatterStatistics();
         
-        // Notify game
-        if (game != null) {
-            game.onScatterCompleted(getScatterStatistics());
-        }
-        
-        // Start game after short delay
+        // Countdown before unfreezing
         new BukkitRunnable() {
+            int countdown = 3;
+            
             @Override
             public void run() {
-                game.startGame();
+                if (countdown > 0) {
+                    Bukkit.broadcastMessage(ChatColor.YELLOW + "§lUnfreezing in " + countdown + "...");
+                    
+                    // Play sound for all players
+                    for (Player player : Bukkit.getOnlinePlayers()) {
+                        player.playSound(player.getLocation(), Sound.NOTE_PLING, 1.0f, 1.0f);
+                    }
+                    
+                    countdown--;
+                } else {
+                    // Unfreeze all players
+                    freezeManager.unfreezeAllPlayers();
+                    
+                    Bukkit.broadcastMessage(ChatColor.GREEN + "§l§m                                                ");
+                    Bukkit.broadcastMessage(ChatColor.GREEN + "§lGAME STARTED!");
+                    Bukkit.broadcastMessage(ChatColor.YELLOW + "Good luck and have fun!");
+                    Bukkit.broadcastMessage(ChatColor.GREEN + "§l§m                                                ");
+                    
+                    // Play final sound
+                    for (Player player : Bukkit.getOnlinePlayers()) {
+                        player.playSound(player.getLocation(), Sound.LEVEL_UP, 1.0f, 1.0f);
+                    }
+                    
+                    // Notify game
+                    if (game != null) {
+                        game.onScatterCompleted(getScatterStatistics());
+                    }
+                    
+                    // Start game
+                    game.startGame();
+                    
+                    cancel();
+                }
             }
-        }.runTaskLater(UHC.getInstance(), 40L); // 2 second delay
+        }.runTaskTimer(UHC.getInstance(), 20L, 20L); // Start after 1 second, run every second
         
         cancel();
     }
     
     private void handleFailure() {
         Bukkit.broadcastMessage(ChatColor.RED + "Scatter failed! Starting game without scattering...");
+        
+        // Unfreeze players since scatter failed
+        freezeManager.unfreezeAllPlayers();
         
         new BukkitRunnable() {
             @Override
@@ -775,6 +821,11 @@ public class ProgressiveScatterManager extends BukkitRunnable {
     public void cancel() {
         this.cancelled = true;
         super.cancel();
+        
+        // Clean up freeze manager
+        if (freezeManager != null) {
+            freezeManager.cleanup();
+        }
         
         // Keep chunks loaded for a bit longer
         new BukkitRunnable() {
