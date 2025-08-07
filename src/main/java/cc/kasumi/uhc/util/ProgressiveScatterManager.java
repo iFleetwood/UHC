@@ -309,8 +309,12 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             // Use a smaller area near center for fallback
             double actualMaxRadius = Math.min(maxRadius, borderRadius / 2);
             
-            int x = (int) (borderCenter.getX() + (random.nextDouble() * 2 - 1) * actualMaxRadius);
-            int z = (int) (borderCenter.getZ() + (random.nextDouble() * 2 - 1) * actualMaxRadius);
+            // Use circular distribution
+            double angle = random.nextDouble() * 2 * Math.PI;
+            double r = Math.sqrt(random.nextDouble()) * actualMaxRadius;
+            
+            int x = (int) (borderCenter.getX() + r * Math.cos(angle));
+            int z = (int) (borderCenter.getZ() + r * Math.sin(angle));
 
             Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
             int groundY = world.getHighestBlockYAt(candidate);
@@ -325,12 +329,12 @@ public class ProgressiveScatterManager extends BukkitRunnable {
 
     private Location findLocationWithReducedRequirements(Random random) {
         for (int attempt = 0; attempt < 30; attempt++) {
-            // Use actual border radius instead of effective border radius
-            double maxX = borderRadius;
-            double maxZ = borderRadius;
+            // Use circular distribution for the full border area
+            double angle = random.nextDouble() * 2 * Math.PI;
+            double r = Math.sqrt(random.nextDouble()) * borderRadius;
             
-            int x = (int) (borderCenter.getX() + (random.nextDouble() * 2 - 1) * maxX);
-            int z = (int) (borderCenter.getZ() + (random.nextDouble() * 2 - 1) * maxZ);
+            int x = (int) (borderCenter.getX() + r * Math.cos(angle));
+            int z = (int) (borderCenter.getZ() + r * Math.sin(angle));
 
             Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
             int groundY = world.getHighestBlockYAt(candidate);
@@ -344,20 +348,27 @@ public class ProgressiveScatterManager extends BukkitRunnable {
     }
 
     private Location findLocationOnGrid(UUID teamId) {
-        // Create a grid pattern based on team ID hash
-        int gridSize = 100;
+        // Create a circular pattern based on team ID hash
         int hash = Math.abs(teamId.hashCode());
-        int gridX = (hash % 10) - 5; // -5 to 4
-        int gridZ = ((hash / 10) % 10) - 5; // -5 to 4
+        
+        // Use hash to determine position in a circular pattern
+        double baseAngle = (hash % 360) * Math.PI / 180; // Convert to radians
+        double baseRadius = borderRadius * 0.3 + (hash % 100) * (borderRadius * 0.6 / 100); // 30% to 90% of border radius
 
-        for (int offsetX = -1; offsetX <= 1; offsetX++) {
-            for (int offsetZ = -1; offsetZ <= 1; offsetZ++) {
-                int x = (int) (borderCenter.getX() + (gridX + offsetX) * gridSize);
-                int z = (int) (borderCenter.getZ() + (gridZ + offsetZ) * gridSize);
+        // Try multiple positions around the base position
+        for (int i = 0; i < 8; i++) {
+            double angleOffset = i * (Math.PI / 4); // Try 8 positions in 45-degree increments
+            double angle = baseAngle + angleOffset;
+            
+            for (double radiusMultiplier = 1.0; radiusMultiplier >= 0.5; radiusMultiplier -= 0.25) {
+                double r = baseRadius * radiusMultiplier;
+                
+                int x = (int) (borderCenter.getX() + r * Math.cos(angle));
+                int z = (int) (borderCenter.getZ() + r * Math.sin(angle));
 
                 Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
 
-                // FIXED: Check if within game border instead of world border
+                // Check if within game border
                 if (Math.abs(x - borderCenter.getX()) > borderRadius ||
                         Math.abs(z - borderCenter.getZ()) > borderRadius) {
                     continue;
@@ -375,34 +386,59 @@ public class ProgressiveScatterManager extends BukkitRunnable {
     }
 
     private Location createSpawnOffsetLocation(UUID teamId, Random random) {
-        Location spawn = world.getSpawnLocation();
-
         // Create deterministic but varied offset based on team ID
         int hash = Math.abs(teamId.hashCode());
         double angle = (hash % 360) * Math.PI / 180; // Convert to radians
-        double distance = 50 + (hash % 100); // 50-150 blocks from spawn
+        
+        // Try to use more of the border area for last resort placement
+        // Start from outer edge and work inward
+        double maxDistance = borderRadius * 0.8; // 80% of border radius
+        double minDistance = 100; // Minimum 100 blocks from center
+        
+        // Try different distances starting from far out
+        for (double distanceMultiplier = 1.0; distanceMultiplier >= 0.2; distanceMultiplier -= 0.2) {
+            double distance = minDistance + (maxDistance - minDistance) * distanceMultiplier;
+            
+            int x = (int) (borderCenter.getX() + distance * Math.cos(angle));
+            int z = (int) (borderCenter.getZ() + distance * Math.sin(angle));
 
-        int x = (int) (spawn.getX() + distance * Math.cos(angle));
-        int z = (int) (spawn.getZ() + distance * Math.sin(angle));
+            // Check if within border
+            if (Math.abs(x - borderCenter.getX()) > borderRadius ||
+                    Math.abs(z - borderCenter.getZ()) > borderRadius) {
+                continue;
+            }
 
+            Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
+            int groundY = world.getHighestBlockYAt(candidate);
+            candidate.setY(groundY + 1);
+
+            // Make it safe if it isn't
+            if (!GameUtil.isLocationSafe(candidate)) {
+                // Clear area around the location
+                for (int dx = -1; dx <= 1; dx++) {
+                    for (int dz = -1; dz <= 1; dz++) {
+                        for (int dy = 0; dy <= 2; dy++) {
+                            world.getBlockAt(x + dx, groundY + dy, z + dz).setType(Material.AIR);
+                        }
+                    }
+                }
+                // Ensure solid ground
+                world.getBlockAt(x, groundY - 1, z).setType(Material.STONE);
+            }
+
+            return candidate;
+        }
+        
+        // Ultimate fallback - near spawn
+        Location spawn = world.getSpawnLocation();
+        double spawnDistance = 50 + (hash % 50); // 50-100 blocks from spawn
+        int x = (int) (spawn.getX() + spawnDistance * Math.cos(angle));
+        int z = (int) (spawn.getZ() + spawnDistance * Math.sin(angle));
+        
         Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
         int groundY = world.getHighestBlockYAt(candidate);
         candidate.setY(groundY + 1);
-
-        // Make it safe if it isn't
-        if (!GameUtil.isLocationSafe(candidate)) {
-            // Clear area around the location
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    for (int dy = 0; dy <= 2; dy++) {
-                        world.getBlockAt(x + dx, groundY + dy, z + dz).setType(Material.AIR);
-                    }
-                }
-            }
-            // Ensure solid ground
-            world.getBlockAt(x, groundY - 1, z).setType(Material.STONE);
-        }
-
+        
         return candidate;
     }
 
@@ -477,13 +513,14 @@ public class ProgressiveScatterManager extends BukkitRunnable {
 
     private Location generateRandomLocation(Random random) {
         try {
-            // FIXED: Use actual border radius instead of effective border radius
-            // Generate random coordinates within the full border area
-            double maxX = borderRadius;
-            double maxZ = borderRadius;
+            // Use the full border radius for scattering
+            // Generate random coordinates within the circular border area
+            double angle = random.nextDouble() * 2 * Math.PI; // Random angle 0 to 2π
+            // Use sqrt for uniform distribution in circular area
+            double r = Math.sqrt(random.nextDouble()) * borderRadius;
             
-            int x = (int) (borderCenter.getX() + (random.nextDouble() * 2 - 1) * maxX);
-            int z = (int) (borderCenter.getZ() + (random.nextDouble() * 2 - 1) * maxZ);
+            int x = (int) (borderCenter.getX() + r * Math.cos(angle));
+            int z = (int) (borderCenter.getZ() + r * Math.sin(angle));
 
             Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
             int groundY = world.getHighestBlockYAt(candidate);
@@ -532,29 +569,29 @@ public class ProgressiveScatterManager extends BukkitRunnable {
 
     private Location generateGridBasedLocation(Random random, int teamIndex, int totalTeams) {
         try {
-            // FIXED: Use game border center instead of world border center
+            // Use game border center
             double centerX = borderCenter.getX();
             double centerZ = borderCenter.getZ();
 
-            // Calculate grid parameters using actual border radius
-            int gridSize = (int) Math.ceil(Math.sqrt(totalTeams));
-            double gridSpacing = (borderRadius * 2) / (gridSize + 1);
-
-            // Calculate grid position
-            int gridX = teamIndex % gridSize;
-            int gridZ = teamIndex / gridSize;
-
-            // Calculate base position
-            double baseX = centerX - borderRadius + (gridX + 1) * gridSpacing;
-            double baseZ = centerZ - borderRadius + (gridZ + 1) * gridSpacing;
-
-            // Add random offset within grid cell
-            double offsetRange = gridSpacing * 0.3; // 30% of grid spacing
-            double offsetX = (random.nextDouble() - 0.5) * offsetRange;
-            double offsetZ = (random.nextDouble() - 0.5) * offsetRange;
-
-            int x = (int) (baseX + offsetX);
-            int z = (int) (baseZ + offsetZ);
+            // Create a circular grid pattern that utilizes the full border area
+            // Use a spiral pattern for better distribution
+            double goldenAngle = Math.PI * (3.0 - Math.sqrt(5.0)); // Golden angle in radians
+            double angle = teamIndex * goldenAngle;
+            
+            // Use Fermat's spiral for even distribution
+            // Distance increases with square root to maintain uniform density
+            double maxRadius = borderRadius * 0.9; // Use 90% of border to ensure we stay within bounds
+            double r = maxRadius * Math.sqrt((double)teamIndex / totalTeams);
+            
+            // Add some randomness to avoid perfect spiral
+            double angleOffset = (random.nextDouble() - 0.5) * 0.3; // +/- 0.15 radians
+            double radiusOffset = (random.nextDouble() - 0.5) * 20; // +/- 10 blocks
+            
+            double finalAngle = angle + angleOffset;
+            double finalRadius = Math.max(10, r + radiusOffset); // Ensure minimum 10 blocks from center
+            
+            int x = (int) (centerX + finalRadius * Math.cos(finalAngle));
+            int z = (int) (centerZ + finalRadius * Math.sin(finalAngle));
 
             Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
             int groundY = world.getHighestBlockYAt(candidate);
