@@ -3,15 +3,12 @@ package cc.kasumi.uhc.util;
 import cc.kasumi.uhc.UHC;
 import cc.kasumi.uhc.combatlog.CombatLogVillagerManager;
 import cc.kasumi.uhc.game.Game;
-import cc.kasumi.uhc.game.GamePlayer;
-import cc.kasumi.uhc.team.UHCTeam;
 import lombok.NonNull;
 import org.bukkit.*;
+import org.bukkit.block.Biome;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.ItemStack;
-import org.bukkit.potion.PotionEffect;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.*;
@@ -25,7 +22,7 @@ public class GameUtil {
         Material.LAVA, Material.STATIONARY_LAVA,
         Material.WATER, Material.STATIONARY_WATER,
         Material.FIRE, Material.CACTUS,
-        Material.AIR, Material.MAGMA
+        Material.AIR
     ));
     
     private static final Set<Material> PASSABLE_MATERIALS = new HashSet<>(Arrays.asList(
@@ -39,7 +36,7 @@ public class GameUtil {
     
     private static final Set<Material> DANGEROUS_MATERIALS = new HashSet<>(Arrays.asList(
         Material.LAVA, Material.STATIONARY_LAVA,
-        Material.FIRE, Material.CACTUS, Material.MAGMA,
+        Material.FIRE, Material.CACTUS,
         Material.WEB, Material.TNT
     ));
 
@@ -334,8 +331,6 @@ public class GameUtil {
             case SWAMPLAND:
                 return 0.6; // Medium - water patches
             case EXTREME_HILLS:
-            case EXTREME_HILLS_WITH_TREES:
-                return 0.7; // Good - some cliffs
             case PLAINS:
             case FOREST:
             case BIRCH_FOREST:

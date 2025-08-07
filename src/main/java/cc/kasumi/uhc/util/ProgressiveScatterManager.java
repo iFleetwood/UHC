@@ -9,9 +9,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 /**
  * Progressive scatter system with chunk preloading and optimized performance
@@ -543,7 +541,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             public void run() {
                 for (ChunkCoordinate coord : preloadedChunks) {
                     Chunk chunk = world.getChunkAt(coord.x, coord.z);
-                    if (chunk.isLoaded() && !chunk.isForceLoaded()) {
+                    if (chunk.isLoaded()) {
                         chunk.unload(true);
                     }
                 }
