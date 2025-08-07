@@ -1,6 +1,7 @@
 package cc.kasumi.uhc.util;
 
 import cc.kasumi.uhc.UHC;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.EntityType;
@@ -46,6 +47,10 @@ public class PlayerFreezeManager implements Listener {
         Location loc = player.getLocation();
         originalLocations.put(player.getUniqueId(), loc.clone());
         
+        // Ensure player is not flying before freezing
+        player.setAllowFlight(false);
+        player.setFlying(false);
+        
         // Create invisible armor stand
         ArmorStand stand = (ArmorStand) player.getWorld().spawnEntity(
             loc.clone().add(0, -1.0, 0), // Spawn slightly below to align properly
@@ -65,7 +70,8 @@ public class PlayerFreezeManager implements Listener {
         
         // Apply effects to ensure they can't move
         player.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, Integer.MAX_VALUE, 255, false, false));
-        player.addPotionEffect(new PotionEffect(PotionEffectType.JUMP, Integer.MAX_VALUE, 128, false, false));
+        // Use a lower jump reduction to avoid issues
+        player.addPotionEffect(new PotionEffect(PotionEffectType.JUMP, Integer.MAX_VALUE, 200, false, false));
         
         // Store reference
         frozenPlayers.put(player.getUniqueId(), stand);
@@ -88,9 +94,10 @@ public class PlayerFreezeManager implements Listener {
             // Remove armor stand
             stand.remove();
             
-            // Remove potion effects
-            player.removePotionEffect(PotionEffectType.SLOW);
-            player.removePotionEffect(PotionEffectType.JUMP);
+            // Clear ALL potion effects to ensure clean state
+            for (PotionEffect effect : player.getActivePotionEffects()) {
+                player.removePotionEffect(effect.getType());
+            }
             
             // Get the player's current location
             Location currentLoc = player.getLocation();
@@ -101,12 +108,34 @@ public class PlayerFreezeManager implements Listener {
             // Teleport player to safe location
             player.teleport(safeLocation);
             
-            // Clear any velocity to prevent flying
+            // Ensure player state is reset properly
+            player.setGameMode(GameMode.SURVIVAL);
+            player.setAllowFlight(false);
+            player.setFlying(false);
             player.setVelocity(player.getVelocity().zero());
             player.setFallDistance(0);
             
             // Give brief invulnerability to prevent fall damage
             player.setNoDamageTicks(20); // 1 second of invulnerability
+            
+            // Schedule a delayed check to ensure player is grounded
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    if (player.isOnline()) {
+                        // Double-check flight is disabled
+                        player.setAllowFlight(false);
+                        player.setFlying(false);
+                        
+                        // If player is still in air, teleport to ground again
+                        if (!player.isOnGround() && player.getFallDistance() > 2) {
+                            Location groundLoc = findSafeGroundLocation(player.getLocation());
+                            player.teleport(groundLoc);
+                            player.setVelocity(player.getVelocity().zero());
+                        }
+                    }
+                }
+            }.runTaskLater(UHC.getInstance(), 10L); // Check after 0.5 seconds
             
             // Remove from tracking
             originalLocations.remove(player.getUniqueId());
@@ -140,6 +169,35 @@ public class PlayerFreezeManager implements Listener {
         frozenPlayers.values().forEach(ArmorStand::remove);
         frozenPlayers.clear();
         originalLocations.clear();
+        
+        // Schedule periodic safety checks for the next few seconds
+        new BukkitRunnable() {
+            int checks = 0;
+            
+            @Override
+            public void run() {
+                if (checks++ >= 10) { // Check for 5 seconds (10 checks at 0.5s intervals)
+                    cancel();
+                    return;
+                }
+                
+                for (Player player : UHC.getInstance().getServer().getOnlinePlayers()) {
+                    if (player.getGameMode() == GameMode.SURVIVAL) {
+                        // Ensure flight is disabled
+                        if (player.getAllowFlight() || player.isFlying()) {
+                            player.setAllowFlight(false);
+                            player.setFlying(false);
+                        }
+                        
+                        // Check if player seems to be floating
+                        if (!player.isOnGround() && player.getFallDistance() == 0 && player.getVelocity().getY() > 0.1) {
+                            // Force downward velocity to ground them
+                            player.setVelocity(player.getVelocity().setY(-0.2));
+                        }
+                    }
+                }
+            }
+        }.runTaskTimer(UHC.getInstance(), 10L, 10L); // Start after 0.5s, repeat every 0.5s
     }
     
     /**
