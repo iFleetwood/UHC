@@ -75,7 +75,7 @@ public class GameUtil {
         if (!isGroundSafe(groundBlock)) {
             if (debug && UHC.getInstance() != null) {
                 UHC.getInstance().getLogger().info("DEBUG: Location " + x + "," + y + "," + z + 
-                    " failed: unsafe ground (" + groundBlock.getType() + ")");
+                    " failed: unsafe ground (" + groundBlock.getType() + ") at Y=" + (y-1));
             }
             return false;
         }
