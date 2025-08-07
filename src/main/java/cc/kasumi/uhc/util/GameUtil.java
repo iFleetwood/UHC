@@ -68,27 +68,61 @@ public class GameUtil {
         Block feetBlock = world.getBlockAt(x, y, z);
         Block headBlock = world.getBlockAt(x, y + 1, z);
 
+        // Debug version - log first few checks at INFO level
+        boolean debug = debugLocationSafety();
+
         // Check ground safety
         if (!isGroundSafe(groundBlock)) {
+            if (debug && UHC.getInstance() != null) {
+                UHC.getInstance().getLogger().info("DEBUG: Location " + x + "," + y + "," + z + 
+                    " failed: unsafe ground (" + groundBlock.getType() + ")");
+            }
             return false;
         }
 
         // Check if feet and head space are clear
         if (!isPassableMaterial(feetBlock.getType()) || !isPassableMaterial(headBlock.getType())) {
+            if (debug && UHC.getInstance() != null) {
+                UHC.getInstance().getLogger().info("DEBUG: Location " + x + "," + y + "," + z + 
+                    " failed: blocked space (feet: " + feetBlock.getType() + 
+                    ", head: " + headBlock.getType() + ")");
+            }
             return false;
         }
 
         // Check for dangerous nearby blocks
         if (hasDangerousNearbyBlocks(world, x, y, z)) {
+            if (debug && UHC.getInstance() != null) {
+                UHC.getInstance().getLogger().info("DEBUG: Location " + x + "," + y + "," + z + 
+                    " failed: dangerous nearby blocks");
+            }
             return false;
         }
 
         // Additional checks for scatter safety
         if (!hasStableGround(world, x, y - 1, z)) {
+            if (debug && UHC.getInstance() != null) {
+                UHC.getInstance().getLogger().info("DEBUG: Location " + x + "," + y + "," + z + 
+                    " failed: unstable ground (less than 5 solid blocks in 3x3 area)");
+            }
             return false;
         }
 
         return true;
+    }
+    
+    private static int debugCounter = 0;
+    private static boolean debugLocationSafety() {
+        // Only debug first 10 location checks to avoid spam
+        if (debugCounter < 10) {
+            debugCounter++;
+            return true;
+        }
+        return false;
+    }
+    
+    public static void resetLocationSafetyDebug() {
+        debugCounter = 0;
     }
     
     /**
@@ -153,8 +187,9 @@ public class GameUtil {
                 }
             }
         }
-        // At least 5 solid blocks in 3x3 area for stability
-        return solidBlocks >= 5;
+        // At least 3 solid blocks in 3x3 area for stability (reduced from 5)
+        // This allows for edges of cliffs and smaller platforms
+        return solidBlocks >= 3;
     }
     
     /**

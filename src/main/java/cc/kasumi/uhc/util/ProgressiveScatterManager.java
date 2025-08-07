@@ -148,6 +148,9 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             return;
         }
         
+        // Reset debug counter
+        GameUtil.resetLocationSafetyDebug();
+        
         // Log initialization details
         UHC.getInstance().getLogger().info("=== ProgressiveScatter Initialization ===");
         UHC.getInstance().getLogger().info("World: " + world.getName());
@@ -434,7 +437,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         // Check if location is safe
         if (!GameUtil.isLocationSafe(location)) {
             if (scatterAttempts.values().stream().mapToInt(a -> a.attempts).sum() <= 20) {
-                UHC.getInstance().getLogger().fine("Location " + formatLocation(location) + " is not safe");
+                UHC.getInstance().getLogger().info("Location " + formatLocation(location) + " is not safe");
             }
             return false;
         }
