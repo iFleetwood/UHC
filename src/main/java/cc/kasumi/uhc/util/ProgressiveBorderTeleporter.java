@@ -85,7 +85,8 @@ public class ProgressiveBorderTeleporter extends BukkitRunnable {
             this.gameBorderCenter = worldBorder.getCenter();
             this.gameBorderRadius = worldBorder.getSize() / 2.0;
 
-            UHC.getInstance().getLogger().warning("Game instance not available, using world border as fallback");
+            // During initialization, game might not be available yet - this is normal
+            UHC.getInstance().getLogger().fine("Game instance not yet available, using world border as fallback");
         }
     }
 

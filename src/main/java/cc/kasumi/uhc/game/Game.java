@@ -145,6 +145,20 @@ public class Game {
             setWorldBorder(initialBorderSize);
             initWorldEnvironment(uhcWorld);
             UHC.getInstance().getLogger().info("Game initialized with world: " + worldName);
+            
+            // Start border teleporter after game is fully initialized
+            startBorderTeleporter();
+        }
+    }
+
+    /**
+     * Start the border teleporter after game initialization
+     */
+    private void startBorderTeleporter() {
+        World world = getWorld();
+        if (world != null) {
+            combatLogVillagerManager.handleBorderShrink(world.getWorldBorder(), world);
+            UHC.getInstance().getLogger().info("Started game border teleportation process");
         }
     }
 
@@ -415,7 +429,8 @@ public class Game {
         worldBorder.setCenter(0.5, 0.5);
         worldBorder.setSize(borderSize * 2 - 1.5);
 
-        combatLogVillagerManager.handleBorderShrink(worldBorder, world);
+        // Don't start border teleporter here during initialization
+        // It will be started after game is fully initialized
 
         UHC.getInstance().getLogger().info("World border set to size: " + borderSize + " in world: " + world.getName());
     }
@@ -859,6 +874,9 @@ public class Game {
         World world = getWorld();
         if (world != null) {
             GameUtil.shrinkBorder(borderSize, world);
+            
+            // Start border teleporter for border changes after initialization
+            combatLogVillagerManager.handleBorderShrink(world.getWorldBorder(), world);
 
             int aliveTeams = teamManager.getAliveTeams().size();
             Bukkit.broadcastMessage(ChatColor.GOLD + "Border built with size: " + borderSize +

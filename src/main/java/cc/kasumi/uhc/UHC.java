@@ -261,7 +261,8 @@ public final class UHC extends JavaPlugin {
      */
     public Game getGame() {
         if (game == null) {
-            getLogger().warning("Game instance is null!");
+            // Only log as debug - during initialization this is expected
+            getLogger().fine("Game instance is null - likely during initialization");
         }
         return game;
     }
