@@ -5,7 +5,9 @@ import cc.kasumi.uhc.world.WorldManager;
 import cc.kasumi.uhc.world.WorldPopulatorManager;
 import co.aikar.commands.BaseCommand;
 import co.aikar.commands.annotation.*;
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -188,7 +190,7 @@ public class WorldCommand extends BaseCommand {
             player.sendMessage(ChatColor.YELLOW + "No world specified, using current world: " + targetWorld.getName());
         } else {
             // Try to find the specified world
-            targetWorld = org.bukkit.Bukkit.getWorld(worldName);
+            targetWorld = Bukkit.getWorld(worldName);
             if (targetWorld == null) {
                 player.sendMessage(ChatColor.RED + "World '" + worldName + "' not found!");
                 player.sendMessage(ChatColor.YELLOW + "Available worlds:");
@@ -201,7 +203,7 @@ public class WorldCommand extends BaseCommand {
 
         try {
             // Get player's current location
-            org.bukkit.Location playerLocation = player.getLocation();
+            Location playerLocation = player.getLocation();
             
             // Set the spawn location for the target world
             targetWorld.setSpawnLocation(
