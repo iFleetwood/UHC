@@ -3,24 +3,51 @@ package cc.kasumi.uhc.util;
 import cc.kasumi.uhc.UHC;
 import cc.kasumi.uhc.combatlog.CombatLogVillagerManager;
 import cc.kasumi.uhc.game.Game;
+import cc.kasumi.uhc.game.GamePlayer;
+import cc.kasumi.uhc.team.UHCTeam;
 import lombok.NonNull;
 import org.bukkit.*;
+import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.potion.PotionEffect;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.*;
 
 /**
- * Cleaned up GameUtil with simplified scattering removed and enhanced game border integration
+ * Enhanced GameUtil with comprehensive scatter support and safety checks
  */
 public class GameUtil {
+
+    private static final Set<Material> UNSAFE_GROUND_MATERIALS = new HashSet<>(Arrays.asList(
+        Material.LAVA, Material.STATIONARY_LAVA,
+        Material.WATER, Material.STATIONARY_WATER,
+        Material.FIRE, Material.CACTUS,
+        Material.AIR, Material.MAGMA
+    ));
+    
+    private static final Set<Material> PASSABLE_MATERIALS = new HashSet<>(Arrays.asList(
+        Material.AIR, Material.LONG_GRASS, Material.DEAD_BUSH,
+        Material.YELLOW_FLOWER, Material.RED_ROSE, Material.BROWN_MUSHROOM,
+        Material.RED_MUSHROOM, Material.TORCH, Material.REDSTONE_TORCH_ON,
+        Material.REDSTONE_TORCH_OFF, Material.SNOW, Material.VINE,
+        Material.WATER_LILY, Material.DOUBLE_PLANT, Material.CROPS,
+        Material.CARROT, Material.POTATO, Material.SAPLING
+    ));
+    
+    private static final Set<Material> DANGEROUS_MATERIALS = new HashSet<>(Arrays.asList(
+        Material.LAVA, Material.STATIONARY_LAVA,
+        Material.FIRE, Material.CACTUS, Material.MAGMA,
+        Material.WEB, Material.TNT
+    ));
 
     // Track active wall builders to prevent multiple builders for same area
     private static final Map<String, ProgressiveWallBuilder> activeBuilders = new HashMap<>();
 
     /**
-     * Enhanced location safety check
+     * Enhanced location safety check for scatter
      */
     public static boolean isLocationSafe(Location location) {
         if (location == null || location.getWorld() == null) {
@@ -37,88 +64,289 @@ public class GameUtil {
             return false;
         }
 
-        Material groundMaterial = world.getBlockAt(x, y - 1, z).getType();
-        Material feetMaterial = world.getBlockAt(x, y, z).getType();
-        Material headMaterial = world.getBlockAt(x, y + 1, z).getType();
+        Block groundBlock = world.getBlockAt(x, y - 1, z);
+        Block feetBlock = world.getBlockAt(x, y, z);
+        Block headBlock = world.getBlockAt(x, y + 1, z);
 
-        // Ensure there's solid ground (not air, lava, water, or other unsafe blocks)
-        if (groundMaterial == Material.AIR ||
-                groundMaterial == Material.LAVA ||
-                groundMaterial == Material.STATIONARY_LAVA ||
-                groundMaterial == Material.WATER ||
-                groundMaterial == Material.STATIONARY_WATER ||
-                groundMaterial == Material.FIRE ||
-                groundMaterial == Material.CACTUS) {
+        // Check ground safety
+        if (!isGroundSafe(groundBlock)) {
             return false;
         }
 
-        // Check for unsafe ground materials
-        if (groundMaterial == Material.SAND && world.getBlockAt(x, y - 2, z).getType() == Material.AIR) {
-            return false; // Avoid floating sand
-        }
-
-        // Ensure feet space is clear (air or passable blocks)
-        if (!isPassableMaterial(feetMaterial)) {
+        // Check if feet and head space are clear
+        if (!isPassableMaterial(feetBlock.getType()) || !isPassableMaterial(headBlock.getType())) {
             return false;
         }
 
-        // Ensure headspace is clear (air or small passable blocks)
-        if (!isHeadPassableMaterial(headMaterial)) {
-            return false;
-        }
-
-        // Additional check for dangerous nearby blocks
+        // Check for dangerous nearby blocks
         if (hasDangerousNearbyBlocks(world, x, y, z)) {
+            return false;
+        }
+
+        // Additional checks for scatter safety
+        if (!hasStableGround(world, x, y - 1, z)) {
             return false;
         }
 
         return true;
     }
+    
+    /**
+     * Check if the ground is safe for standing
+     */
+    private static boolean isGroundSafe(Block groundBlock) {
+        Material groundMaterial = groundBlock.getType();
+        
+        // Check for unsafe ground materials
+        if (UNSAFE_GROUND_MATERIALS.contains(groundMaterial)) {
+            return false;
+        }
+        
+        // Check for falling blocks
+        if (groundMaterial == Material.SAND || groundMaterial == Material.GRAVEL) {
+            // Check if there's support below
+            Block below = groundBlock.getRelative(0, -1, 0);
+            if (below.getType() == Material.AIR || below.isLiquid()) {
+                return false;
+            }
+        }
+        
+        return groundMaterial.isSolid();
+    }
+    
+    /**
+     * Check if a material is passable (player can stand in it)
+     */
+    private static boolean isPassableMaterial(Material material) {
+        return PASSABLE_MATERIALS.contains(material) || !material.isSolid();
+    }
 
     /**
-     * Check for dangerous blocks nearby
+     * Check for dangerous blocks in the vicinity
      */
     private static boolean hasDangerousNearbyBlocks(World world, int x, int y, int z) {
-        // Check 3x3 area around the location
+        // Check 3x3x3 area around the location
         for (int dx = -1; dx <= 1; dx++) {
-            for (int dz = -1; dz <= 1; dz++) {
-                Material nearby = world.getBlockAt(x + dx, y, z + dz).getType();
-                if (nearby == Material.LAVA || nearby == Material.STATIONARY_LAVA ||
-                        nearby == Material.FIRE || nearby == Material.CACTUS) {
-                    return true;
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    Block block = world.getBlockAt(x + dx, y + dy, z + dz);
+                    if (DANGEROUS_MATERIALS.contains(block.getType())) {
+                        return true;
+                    }
                 }
             }
         }
         return false;
     }
-
+    
     /**
-     * Check if a material is passable for feet level
+     * Check if the ground is stable (not floating)
      */
-    private static boolean isPassableMaterial(Material material) {
-        return material == Material.AIR ||
-                material == Material.LONG_GRASS ||
-                material == Material.YELLOW_FLOWER ||
-                material == Material.RED_ROSE ||
-                material == Material.BROWN_MUSHROOM ||
-                material == Material.RED_MUSHROOM ||
-                material == Material.DEAD_BUSH ||
-                material == Material.SAPLING ||
-                material == Material.SNOW ||
-                material == Material.WHEAT ||
-                material == Material.CARROT ||
-                material == Material.POTATO;
+    private static boolean hasStableGround(World world, int x, int y, int z) {
+        // Check in a 3x3 area to ensure the platform is stable
+        int solidBlocks = 0;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                Block block = world.getBlockAt(x + dx, y, z + dz);
+                if (block.getType().isSolid() && !UNSAFE_GROUND_MATERIALS.contains(block.getType())) {
+                    solidBlocks++;
+                }
+            }
+        }
+        // At least 5 solid blocks in 3x3 area for stability
+        return solidBlocks >= 5;
     }
-
+    
     /**
-     * Check if a material is passable for head level (more restrictive)
+     * Find the nearest safe location from a given point
      */
-    private static boolean isHeadPassableMaterial(Material material) {
-        return material == Material.AIR ||
-                material == Material.LONG_GRASS ||
-                material == Material.YELLOW_FLOWER ||
-                material == Material.RED_ROSE ||
-                material == Material.SNOW;
+    public static Location findNearestSafeLocation(Location origin, int maxRadius) {
+        if (origin == null || origin.getWorld() == null) {
+            return null;
+        }
+        
+        World world = origin.getWorld();
+        
+        // Check origin first
+        if (isLocationSafe(origin)) {
+            return origin;
+        }
+        
+        // Search in expanding circles
+        for (int radius = 1; radius <= maxRadius; radius++) {
+            List<Location> candidates = new ArrayList<>();
+            
+            // Generate circle points
+            int points = radius * 8; // More points for larger circles
+            for (int i = 0; i < points; i++) {
+                double angle = (2 * Math.PI * i) / points;
+                int x = origin.getBlockX() + (int)(radius * Math.cos(angle));
+                int z = origin.getBlockZ() + (int)(radius * Math.sin(angle));
+                
+                Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
+                int y = world.getHighestBlockYAt(candidate);
+                candidate.setY(y + 1);
+                
+                if (isLocationSafe(candidate)) {
+                    candidates.add(candidate);
+                }
+            }
+            
+            // Return the closest safe location found at this radius
+            if (!candidates.isEmpty()) {
+                return candidates.stream()
+                    .min(Comparator.comparingDouble(loc -> loc.distance(origin)))
+                    .orElse(null);
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Make a location safe by clearing dangerous blocks and ensuring solid ground
+     */
+    public static void makeLocationSafe(Location location) {
+        if (location == null || location.getWorld() == null) {
+            return;
+        }
+        
+        World world = location.getWorld();
+        int x = location.getBlockX();
+        int y = location.getBlockY();
+        int z = location.getBlockZ();
+        
+        // Clear the area
+        for (int dy = 0; dy <= 2; dy++) {
+            world.getBlockAt(x, y + dy, z).setType(Material.AIR);
+        }
+        
+        // Ensure solid ground
+        Block groundBlock = world.getBlockAt(x, y - 1, z);
+        if (!groundBlock.getType().isSolid() || UNSAFE_GROUND_MATERIALS.contains(groundBlock.getType())) {
+            groundBlock.setType(Material.STONE);
+        }
+        
+        // Clear dangerous blocks nearby
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                for (int dy = -1; dy <= 2; dy++) {
+                    Block block = world.getBlockAt(x + dx, y + dy, z + dz);
+                    if (DANGEROUS_MATERIALS.contains(block.getType())) {
+                        block.setType(Material.AIR);
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Get a safe spawn location for a player within a radius
+     */
+    public static Location getSafeSpawnLocation(World world, Location center, int radius) {
+        Random random = new Random();
+        
+        // Try random locations
+        for (int attempt = 0; attempt < 50; attempt++) {
+            double angle = random.nextDouble() * 2 * Math.PI;
+            double distance = random.nextDouble() * radius;
+            
+            int x = center.getBlockX() + (int)(distance * Math.cos(angle));
+            int z = center.getBlockZ() + (int)(distance * Math.sin(angle));
+            
+            Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
+            int y = world.getHighestBlockYAt(candidate);
+            candidate.setY(y + 1);
+            
+            if (isLocationSafe(candidate)) {
+                return candidate;
+            }
+        }
+        
+        // Fallback to nearest safe location
+        Location nearest = findNearestSafeLocation(center, radius);
+        if (nearest != null) {
+            return nearest;
+        }
+        
+        // Last resort - make center safe
+        makeLocationSafe(center);
+        return center;
+    }
+    
+    /**
+     * Calculate the highest safe Y coordinate at a location
+     */
+    public static int getHighestSafeY(World world, int x, int z) {
+        int maxY = world.getHighestBlockYAt(x, z);
+        
+        // Start from top and work down to find safe spot
+        for (int y = Math.min(maxY + 1, 255); y > 0; y--) {
+            Location testLoc = new Location(world, x + 0.5, y, z + 0.5);
+            if (isLocationSafe(testLoc)) {
+                return y;
+            }
+        }
+        
+        // Default to highest block + 1
+        return maxY + 1;
+    }
+    
+    /**
+     * Check if a chunk is safe for spawning
+     */
+    public static boolean isChunkSafe(Chunk chunk) {
+        int safeLocations = 0;
+        
+        // Sample several locations in the chunk
+        for (int x = 0; x < 16; x += 4) {
+            for (int z = 0; z < 16; z += 4) {
+                Location loc = chunk.getBlock(x, 0, z).getLocation();
+                loc.setY(chunk.getWorld().getHighestBlockYAt(loc) + 1);
+                
+                if (isLocationSafe(loc)) {
+                    safeLocations++;
+                }
+            }
+        }
+        
+        // At least 25% of sampled locations should be safe
+        return safeLocations >= 4;
+    }
+    
+    /**
+     * Get the biome safety rating (0-1, higher is safer)
+     */
+    public static double getBiomeSafety(Biome biome) {
+        switch (biome) {
+            case OCEAN:
+            case DEEP_OCEAN:
+            case FROZEN_OCEAN:
+                return 0.1; // Very unsafe - water
+            case RIVER:
+            case FROZEN_RIVER:
+                return 0.2; // Unsafe - water
+            case HELL:
+                return 0.3; // Dangerous - nether
+            case DESERT:
+            case MESA:
+                return 0.5; // Medium - hot, sparse resources
+            case SWAMPLAND:
+                return 0.6; // Medium - water patches
+            case EXTREME_HILLS:
+            case EXTREME_HILLS_WITH_TREES:
+                return 0.7; // Good - some cliffs
+            case PLAINS:
+            case FOREST:
+            case BIRCH_FOREST:
+            case ROOFED_FOREST:
+                return 0.9; // Very good
+            case JUNGLE:
+            case JUNGLE_HILLS:
+                return 0.8; // Good - dense but safe
+            default:
+                return 0.5; // Unknown - medium safety
+        }
     }
 
     /**
@@ -202,33 +430,6 @@ public class GameUtil {
         }
 
         return teleportLoc;
-    }
-
-    /**
-     * Find nearest safe location within radius
-     */
-    private static Location findNearestSafeLocation(Location center, int radius) {
-        World world = center.getWorld();
-        int centerX = center.getBlockX();
-        int centerZ = center.getBlockZ();
-
-        for (int r = 1; r <= radius; r++) {
-            for (int x = centerX - r; x <= centerX + r; x++) {
-                for (int z = centerZ - r; z <= centerZ + r; z++) {
-                    // Only check the perimeter of the current radius
-                    if (Math.abs(x - centerX) == r || Math.abs(z - centerZ) == r) {
-                        Location candidate = new Location(world, x + 0.5,
-                                world.getHighestBlockYAt(x, z) + 1, z + 0.5);
-
-                        if (isLocationSafe(candidate)) {
-                            return candidate;
-                        }
-                    }
-                }
-            }
-        }
-
-        return null;
     }
 
     /**
@@ -518,5 +719,40 @@ public class GameUtil {
         }
 
         return builder.getProgress();
+    }
+
+    /**
+     * Teleport a player safely to avoid suffocation
+     */
+    public static void safeTeleport(Player player, Location location) {
+        if (player == null || location == null) {
+            return;
+        }
+
+        World world = location.getWorld();
+        int x = location.getBlockX();
+        int z = location.getBlockZ();
+
+        // Calculate safe Y coordinate
+        int groundY = world.getHighestBlockYAt(x, z);
+        Location teleportLoc = new Location(world, location.getX(), groundY + 1, location.getZ(),
+                location.getYaw(), location.getPitch());
+
+        // Ensure Y is within bounds
+        teleportLoc.setY(Math.max(1, Math.min(groundY + 1, 254)));
+
+        // Validate the calculated location
+        if (!isLocationSafe(teleportLoc)) {
+            // Try to find a nearby safe location
+            Location safeLoc = findNearestSafeLocation(teleportLoc, 10);
+            if (safeLoc != null) {
+                teleportLoc = safeLoc;
+            } else {
+                // Force make it safe
+                makeLocationSafe(teleportLoc);
+            }
+        }
+
+        player.teleport(teleportLoc);
     }
 }

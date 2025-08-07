@@ -8,100 +8,119 @@ import org.bukkit.*;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
- * Fixed scatter manager that uses game border settings instead of world border
+ * Progressive scatter system with chunk preloading and optimized performance
  */
 public class ProgressiveScatterManager extends BukkitRunnable {
 
     private final Game game;
     private final World world;
-    private int radius;
-    private final List<UHCTeam> teamsToScatter;
-    private final Map<UUID, Location> teamScatterLocations = new HashMap<>();
-    private final Map<UUID, ScatterAttempt> scatterAttempts = new HashMap<>();
-    private final Set<Chunk> chunksToPreload = new HashSet<>();
-
-    // Cached game border values - FIXED: Use game values instead of world border
-    private final Location borderCenter;
     private final double borderRadius;
-    private final double effectiveBorderRadius;
-
+    private final double bufferFromBorder;
+    private final List<UHCTeam> teamsToScatter;
+    
+    // Scatter locations and chunk management
+    private final Map<UUID, Location> teamScatterLocations = new ConcurrentHashMap<>();
+    private final Map<UUID, ScatterAttempt> scatterAttempts = new ConcurrentHashMap<>();
+    private final Set<ChunkCoordinate> chunksToPreload = ConcurrentHashMap.newKeySet();
+    private final Set<ChunkCoordinate> preloadedChunks = ConcurrentHashMap.newKeySet();
+    
     // State tracking
     @Getter
-    private ScatterPhase currentPhase = ScatterPhase.VALIDATING_TEAMS;
+    private ScatterPhase currentPhase = ScatterPhase.INITIALIZING;
     private int currentTeamIndex = 0;
-    private Iterator<Chunk> chunkIterator;
+    private Iterator<ChunkCoordinate> chunkIterator;
     private boolean cancelled = false;
-
+    
     // Configuration
-    private static final int LOCATIONS_PER_TICK = 3;
-    private static final int CHUNKS_PER_TICK = 2;
-    private static final int TELEPORTS_PER_TICK = 2;
-    private static final int MIN_DISTANCE_BETWEEN_TEAMS = 150;
-    private static final int MAX_TEAM_SPREAD = 25;
-    private static final int MAX_ATTEMPTS_PER_LOCATION = 50;
-    private static final int SAFETY_BUFFER_FROM_BORDER = 50; // Reduced buffer since we use circular boundaries
-    private static final int FALLBACK_ATTEMPTS = 10;
-
+    private static final int LOCATIONS_PER_TICK = 2; // Generate 2 locations per tick
+    private static final int CHUNKS_PER_TICK = 3; // Preload 3 chunks per tick
+    private static final int TELEPORTS_PER_TICK = 1; // Teleport 1 team per tick
+    private static final int MIN_DISTANCE_BETWEEN_TEAMS = 200; // Minimum distance between teams
+    private static final int MIN_DISTANCE_FROM_PLAYERS = 300; // Minimum distance from existing players
+    private static final int MAX_TEAM_SPREAD = 20; // Maximum spread for team members
+    private static final int MAX_ATTEMPTS_PER_LOCATION = 100; // Maximum attempts to find a location
+    private static final double BUFFER_PERCENTAGE = 0.05; // 5% buffer from border
+    private static final int CHUNK_PRELOAD_RADIUS = 2; // Preload chunks in 5x5 area
+    
+    // Performance tracking
+    private long startTime;
+    private int totalChunksToPreload = 0;
+    
     public enum ScatterPhase {
+        INITIALIZING,
         VALIDATING_TEAMS,
         GENERATING_LOCATIONS,
         PRELOADING_CHUNKS,
         TELEPORTING_TEAMS,
-        HANDLING_FAILURES,
-        COMPLETED
+        COMPLETED,
+        FAILED
     }
-
+    
     private static class ScatterAttempt {
         int attempts = 0;
         boolean successful = false;
         String failureReason = "";
-        Location lastAttemptLocation = null;
+        Location finalLocation = null;
+        long timestamp = System.currentTimeMillis();
     }
-
-    public ProgressiveScatterManager(Game game, int requestedRadius) {
+    
+    private static class ChunkCoordinate {
+        final int x;
+        final int z;
+        
+        ChunkCoordinate(int x, int z) {
+            this.x = x;
+            this.z = z;
+        }
+        
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            ChunkCoordinate that = (ChunkCoordinate) o;
+            return x == that.x && z == that.z;
+        }
+        
+        @Override
+        public int hashCode() {
+            return Objects.hash(x, z);
+        }
+    }
+    
+    public ProgressiveScatterManager(Game game, int borderSize) {
         this.game = game;
         this.world = game.getWorld();
-
-        // Use game's border configuration - border size is the radius, not diameter!
-        this.borderCenter = new Location(world, 0, 0, 0); // UHC always uses 0,0 as center
-        this.borderRadius = game.getInitialBorderSize(); // Border size IS the radius (e.g., 1000 = ±1000)
-        this.effectiveBorderRadius = borderRadius - SAFETY_BUFFER_FROM_BORDER;
-
-        // Use effective border radius for scattering to utilize full border area
-        this.radius = (int) effectiveBorderRadius;
-
-        this.teamsToScatter = getValidTeamsToScatter();
-
-        UHC.getInstance().getLogger().info("Starting scatter for " + teamsToScatter.size() +
-                " teams using full border area (border extends ±" + (int)borderRadius + 
-                " blocks, total area: " + String.format("%.0f", borderRadius * 2 * borderRadius * 2) + 
-                " blocks²) in world: " + (world != null ? world.getName() : "NULL"));
+        this.borderRadius = borderSize; // Border size is the radius (e.g., 1000 = ±1000)
+        this.bufferFromBorder = borderRadius * BUFFER_PERCENTAGE;
+        this.teamsToScatter = new ArrayList<>();
+        this.startTime = System.currentTimeMillis();
+        
+        UHC.getInstance().getLogger().info("Initializing ProgressiveScatter with border radius: " + borderRadius + 
+                " (usable area: ±" + (borderRadius - bufferFromBorder) + " blocks)");
     }
-
+    
     @Override
     public void run() {
         if (cancelled) {
             return;
         }
-
+        
         try {
             switch (currentPhase) {
+                case INITIALIZING:
+                    initialize();
+                    break;
                 case VALIDATING_TEAMS:
                     validateTeams();
                     break;
                 case GENERATING_LOCATIONS:
-                    generateTeamLocations();
+                    generateLocations();
                     break;
                 case PRELOADING_CHUNKS:
                     preloadChunks();
@@ -109,932 +128,475 @@ public class ProgressiveScatterManager extends BukkitRunnable {
                 case TELEPORTING_TEAMS:
                     teleportTeams();
                     break;
-                case HANDLING_FAILURES:
-                    handleScatterFailures();
-                    break;
                 case COMPLETED:
                     complete();
                     break;
+                case FAILED:
+                    handleFailure();
+                    break;
             }
         } catch (Exception e) {
-            UHC.getInstance().getLogger().severe("Error in scatter manager: " + e.getMessage());
-            UHC.getInstance().getLogger().log(java.util.logging.Level.SEVERE, "Scatter manager error", e);
-            handleError("Scatter error: " + e.getMessage());
+            UHC.getInstance().getLogger().severe("Error in ProgressiveScatter: " + e.getMessage());
+            e.printStackTrace();
+            currentPhase = ScatterPhase.FAILED;
         }
     }
-
-    private void validateTeams() {
+    
+    private void initialize() {
         if (world == null) {
             handleError("World is null!");
             return;
         }
-
-        if (!game.isWorldReady()) {
-            handleError("World is not ready!");
-            return;
+        
+        // Collect valid teams
+        for (UHCTeam team : game.getTeamManager().getAllTeams()) {
+            if (team.getSize() > 0 && !team.getOnlineMembers().isEmpty()) {
+                teamsToScatter.add(team);
+                scatterAttempts.put(team.getTeamId(), new ScatterAttempt());
+            }
         }
-
+        
         if (teamsToScatter.isEmpty()) {
             handleError("No valid teams to scatter!");
             return;
         }
-
-        // Validate using game border settings
-        UHC.getInstance().getLogger().info("Border validation: Border extends ±" + (int)borderRadius +
-                " blocks (effective: ±" + (int)effectiveBorderRadius + 
-                " with safety buffer), total area: " + String.format("%.0f", borderRadius * 2 * borderRadius * 2) + " blocks²");
-
-        if (effectiveBorderRadius < 100) {
-            UHC.getInstance().getLogger().warning("Game border (" + game.getInitialBorderSize() +
-                    ") is very small for effective scattering (effective radius: " + (int)effectiveBorderRadius + ")");
-        }
-
-        // Initialize scatter attempts tracking
-        for (UHCTeam team : teamsToScatter) {
-            scatterAttempts.put(team.getTeamId(), new ScatterAttempt());
-        }
-
-        currentPhase = ScatterPhase.GENERATING_LOCATIONS;
-        Bukkit.broadcastMessage(ChatColor.YELLOW + "Teams validated. Generating scatter locations...");
-        UHC.getInstance().getLogger().info("Team validation completed. Found " + teamsToScatter.size() +
-                " valid teams to scatter using full border area (border radius: " + (int)borderRadius + 
-                ", area: " + String.format("%.0f", borderRadius * 2 * borderRadius * 2) + " blocks²)");
+        
+        UHC.getInstance().getLogger().info("Found " + teamsToScatter.size() + " teams to scatter");
+        currentPhase = ScatterPhase.VALIDATING_TEAMS;
     }
-
-    private void generateTeamLocations() {
+    
+    private void validateTeams() {
+        // Validate world conditions
+        if (!game.isWorldReady()) {
+            handleError("World is not ready!");
+            return;
+        }
+        
+        // Calculate if we have enough space
+        double usableRadius = borderRadius - bufferFromBorder;
+        double totalArea = usableRadius * usableRadius * 4; // Square area
+        double requiredAreaPerTeam = MIN_DISTANCE_BETWEEN_TEAMS * MIN_DISTANCE_BETWEEN_TEAMS;
+        double maxTeams = totalArea / requiredAreaPerTeam;
+        
+        if (teamsToScatter.size() > maxTeams) {
+            UHC.getInstance().getLogger().warning("Warning: " + teamsToScatter.size() + 
+                    " teams may be too many for border size (recommended max: " + (int)maxTeams + ")");
+        }
+        
+        Bukkit.broadcastMessage(ChatColor.YELLOW + "Validating " + teamsToScatter.size() + " teams for scatter...");
+        currentPhase = ScatterPhase.GENERATING_LOCATIONS;
+    }
+    
+    private void generateLocations() {
         int locationsGenerated = 0;
         Random random = new Random();
-
+        
         while (currentTeamIndex < teamsToScatter.size() && locationsGenerated < LOCATIONS_PER_TICK) {
             UHCTeam team = teamsToScatter.get(currentTeamIndex);
             ScatterAttempt attempt = scatterAttempts.get(team.getTeamId());
-
-            Location teamLocation = findValidTeamLocation(random, team, attempt);
-
-            if (teamLocation != null) {
-                teamScatterLocations.put(team.getTeamId(), teamLocation);
-                chunksToPreload.add(teamLocation.getChunk());
-                addSurroundingChunks(teamLocation);
-                attempt.successful = true;
-
-                UHC.getInstance().getLogger().info("Generated location for team: " + team.getTeamName() +
-                        " at " + formatLocation(teamLocation) + " (attempt " + attempt.attempts + ")");
-            } else {
-                UHC.getInstance().getLogger().warning("Failed to find scatter location for team: " +
-                        team.getTeamName() + " after " + attempt.attempts + " attempts. Reason: " + attempt.failureReason);
-            }
-
-            currentTeamIndex++;
-            locationsGenerated++;
-
-            // Progress update
-            if (currentTeamIndex % Math.max(1, teamsToScatter.size() / 4) == 0) {
-                double progress = (double) currentTeamIndex / teamsToScatter.size() * 100;
-                Bukkit.broadcastMessage(ChatColor.YELLOW + "Generating team locations: " + (int)progress + "% complete");
-            }
-        }
-
-        // Check if done generating
-        if (currentTeamIndex >= teamsToScatter.size()) {
-            int successfulLocations = teamScatterLocations.size();
-            int failedTeams = teamsToScatter.size() - successfulLocations;
-
-            if (failedTeams > 0) {
-                UHC.getInstance().getLogger().warning("Failed to generate locations for " + failedTeams + " teams");
-                Bukkit.broadcastMessage(ChatColor.YELLOW + "Generated " + successfulLocations + "/" +
-                        teamsToScatter.size() + " team locations. Handling failures...");
-                currentPhase = ScatterPhase.HANDLING_FAILURES;
-            } else {
-                currentPhase = ScatterPhase.PRELOADING_CHUNKS;
-                chunkIterator = chunksToPreload.iterator();
-                Bukkit.broadcastMessage(ChatColor.YELLOW + "Generated all " + successfulLocations +
-                        " team locations. Preloading chunks...");
-            }
-
-            currentTeamIndex = 0; // Reset for next phase
-        }
-    }
-
-    private void handleScatterFailures() {
-        List<UHCTeam> failedTeams = new ArrayList<>();
-
-        for (UHCTeam team : teamsToScatter) {
-            ScatterAttempt attempt = scatterAttempts.get(team.getTeamId());
-            if (!attempt.successful) {
-                failedTeams.add(team);
-            }
-        }
-
-        if (failedTeams.isEmpty()) {
-            // All teams now have locations, proceed
-            currentPhase = ScatterPhase.PRELOADING_CHUNKS;
-            chunkIterator = chunksToPreload.iterator();
-            currentTeamIndex = 0;
-            return;
-        }
-
-        // Try fallback strategies for failed teams
-        Random random = new Random();
-        boolean anySuccess = false;
-
-        for (UHCTeam team : failedTeams) {
-            if (currentTeamIndex >= FALLBACK_ATTEMPTS) break;
-
-            Location fallbackLocation = tryFallbackScatterStrategies(team, random);
-            if (fallbackLocation != null) {
-                teamScatterLocations.put(team.getTeamId(), fallbackLocation);
-                chunksToPreload.add(fallbackLocation.getChunk());
-                addSurroundingChunks(fallbackLocation);
-                scatterAttempts.get(team.getTeamId()).successful = true;
-                anySuccess = true;
-
-                UHC.getInstance().getLogger().info("Fallback scatter successful for team: " + team.getTeamName());
-            }
-
-            currentTeamIndex++;
-        }
-
-        if (anySuccess || currentTeamIndex >= failedTeams.size()) {
-            currentPhase = ScatterPhase.PRELOADING_CHUNKS;
-            chunkIterator = chunksToPreload.iterator();
-            currentTeamIndex = 0;
-
-            int stillFailed = 0;
-            for (UHCTeam team : teamsToScatter) {
-                if (!scatterAttempts.get(team.getTeamId()).successful) {
-                    stillFailed++;
-                }
-            }
-
-            if (stillFailed > 0) {
-                UHC.getInstance().getLogger().warning("Still failed to scatter " + stillFailed + " teams after fallback attempts");
-                Bukkit.broadcastMessage(ChatColor.YELLOW + "Warning: " + stillFailed +
-                        " teams could not be scattered and will remain at spawn");
-            }
-        }
-    }
-
-    private Location tryFallbackScatterStrategies(UHCTeam team, Random random) {
-        // Strategy 1: Try closer to center with reduced distance requirements
-        Location centerAttempt = findLocationNearCenter(random, 50);
-        if (centerAttempt != null) {
-            UHC.getInstance().getLogger().info("Fallback strategy 1 (center) worked for: " + team.getTeamName());
-            return centerAttempt;
-        }
-
-        // Strategy 2: Try with reduced distance requirements
-        Location reducedDistanceAttempt = findLocationWithReducedRequirements(random);
-        if (reducedDistanceAttempt != null) {
-            UHC.getInstance().getLogger().info("Fallback strategy 2 (reduced distance) worked for: " + team.getTeamName());
-            return reducedDistanceAttempt;
-        }
-
-        // Strategy 3: Try systematic grid approach
-        Location gridAttempt = findLocationOnGrid(team.getTeamId());
-        if (gridAttempt != null) {
-            UHC.getInstance().getLogger().info("Fallback strategy 3 (grid) worked for: " + team.getTeamName());
-            return gridAttempt;
-        }
-
-        // Strategy 4: Last resort - place near spawn with offset
-        Location spawnOffset = createSpawnOffsetLocation(team.getTeamId(), random);
-        UHC.getInstance().getLogger().warning("Using last resort spawn offset for: " + team.getTeamName());
-        return spawnOffset;
-    }
-
-    private Location findLocationNearCenter(Random random, int maxRadius) {
-        for (int attempt = 0; attempt < 20; attempt++) {
-            // Use a smaller area near center for fallback
-            double actualMaxRadius = Math.min(maxRadius, borderRadius / 2);
             
-            // Generate within square area
-            int x = (int) (borderCenter.getX() + (random.nextDouble() * 2 - 1) * actualMaxRadius);
-            int z = (int) (borderCenter.getZ() + (random.nextDouble() * 2 - 1) * actualMaxRadius);
-
-            Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
-            int groundY = world.getHighestBlockYAt(candidate);
-            candidate.setY(groundY + 1);
-
-            if (GameUtil.isLocationSafe(candidate) && isLocationValidWithReducedDistance(candidate, 50)) {
-                return candidate;
-            }
-        }
-        return null;
-    }
-
-    private Location findLocationWithReducedRequirements(Random random) {
-        for (int attempt = 0; attempt < 30; attempt++) {
-            // Use full square border area
-            int x = (int) (borderCenter.getX() + (random.nextDouble() * 2 - 1) * borderRadius);
-            int z = (int) (borderCenter.getZ() + (random.nextDouble() * 2 - 1) * borderRadius);
-
-            Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
-            int groundY = world.getHighestBlockYAt(candidate);
-            candidate.setY(groundY + 1);
-
-            if (GameUtil.isLocationSafe(candidate) && isLocationValidWithReducedDistance(candidate, 60)) {
-                return candidate;
-            }
-        }
-        return null;
-    }
-
-    private Location findLocationOnGrid(UUID teamId) {
-        // Create a circular pattern based on team ID hash
-        int hash = Math.abs(teamId.hashCode());
-        
-        // Use hash to determine position in a circular pattern
-        double baseAngle = (hash % 360) * Math.PI / 180; // Convert to radians
-        double baseRadius = borderRadius * 0.3 + (hash % 100) * (borderRadius * 0.6 / 100); // 30% to 90% of border radius
-
-        // Try multiple positions around the base position
-        for (int i = 0; i < 8; i++) {
-            double angleOffset = i * (Math.PI / 4); // Try 8 positions in 45-degree increments
-            double angle = baseAngle + angleOffset;
-            
-            for (double radiusMultiplier = 1.0; radiusMultiplier >= 0.5; radiusMultiplier -= 0.25) {
-                double r = baseRadius * radiusMultiplier;
+            if (!attempt.successful && attempt.attempts < MAX_ATTEMPTS_PER_LOCATION) {
+                Location location = findValidLocation(team, random);
                 
-                int x = (int) (borderCenter.getX() + r * Math.cos(angle));
-                int z = (int) (borderCenter.getZ() + r * Math.sin(angle));
-
-                Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
-
-                // Check if within game border
-                if (Math.abs(x - borderCenter.getX()) > borderRadius ||
-                        Math.abs(z - borderCenter.getZ()) > borderRadius) {
-                    continue;
-                }
-
-                int groundY = world.getHighestBlockYAt(candidate);
-                candidate.setY(groundY + 1);
-
-                if (GameUtil.isLocationSafe(candidate)) {
-                    return candidate;
+                if (location != null) {
+                    teamScatterLocations.put(team.getTeamId(), location);
+                    attempt.successful = true;
+                    attempt.finalLocation = location;
+                    addChunksToPreload(location);
+                    
+                    UHC.getInstance().getLogger().info("Found location for team " + team.getTeamName() + 
+                            " at " + formatLocation(location) + " (attempt " + attempt.attempts + ")");
+                } else if (attempt.attempts >= MAX_ATTEMPTS_PER_LOCATION) {
+                    attempt.failureReason = "Max attempts reached";
+                    UHC.getInstance().getLogger().warning("Failed to find location for team " + 
+                            team.getTeamName() + ": " + attempt.failureReason);
                 }
             }
-        }
-        return null;
-    }
-
-    private Location createSpawnOffsetLocation(UUID teamId, Random random) {
-        // Create deterministic but varied offset based on team ID
-        int hash = Math.abs(teamId.hashCode());
-        double angle = (hash % 360) * Math.PI / 180; // Convert to radians
-        
-        // Try to use more of the border area for last resort placement
-        // Start from outer edge and work inward
-        double maxDistance = borderRadius * 0.8; // 80% of border radius
-        double minDistance = 100; // Minimum 100 blocks from center
-        
-        // Try different distances starting from far out
-        for (double distanceMultiplier = 1.0; distanceMultiplier >= 0.2; distanceMultiplier -= 0.2) {
-            double distance = minDistance + (maxDistance - minDistance) * distanceMultiplier;
             
-            int x = (int) (borderCenter.getX() + distance * Math.cos(angle));
-            int z = (int) (borderCenter.getZ() + distance * Math.sin(angle));
-
-            // Check if within border
-            if (Math.abs(x - borderCenter.getX()) > borderRadius ||
-                    Math.abs(z - borderCenter.getZ()) > borderRadius) {
-                continue;
+            if (attempt.successful || attempt.attempts >= MAX_ATTEMPTS_PER_LOCATION) {
+                currentTeamIndex++;
+                locationsGenerated++;
             }
-
-            Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
-            int groundY = world.getHighestBlockYAt(candidate);
-            candidate.setY(groundY + 1);
-
-            // Make it safe if it isn't
-            if (!GameUtil.isLocationSafe(candidate)) {
-                // Clear area around the location
-                for (int dx = -1; dx <= 1; dx++) {
-                    for (int dz = -1; dz <= 1; dz++) {
-                        for (int dy = 0; dy <= 2; dy++) {
-                            world.getBlockAt(x + dx, groundY + dy, z + dz).setType(Material.AIR);
-                        }
-                    }
-                }
-                // Ensure solid ground
-                world.getBlockAt(x, groundY - 1, z).setType(Material.STONE);
-            }
-
-            return candidate;
         }
         
-        // Ultimate fallback - near spawn
-        Location spawn = world.getSpawnLocation();
-        double spawnDistance = 50 + (hash % 50); // 50-100 blocks from spawn
-        int x = (int) (spawn.getX() + spawnDistance * Math.cos(angle));
-        int z = (int) (spawn.getZ() + spawnDistance * Math.sin(angle));
+        // Progress update
+        if (currentTeamIndex > 0 && currentTeamIndex % 5 == 0) {
+            double progress = (double) currentTeamIndex / teamsToScatter.size() * 100;
+            Bukkit.broadcastMessage(ChatColor.YELLOW + "Generating locations: " + 
+                    String.format("%.0f%%", progress) + " complete");
+        }
         
-        Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
-        int groundY = world.getHighestBlockYAt(candidate);
-        candidate.setY(groundY + 1);
-        
-        return candidate;
+        // Check if done
+        if (currentTeamIndex >= teamsToScatter.size()) {
+            int successful = (int) scatterAttempts.values().stream()
+                    .filter(a -> a.successful)
+                    .count();
+            
+            if (successful == 0) {
+                handleError("Failed to generate any scatter locations!");
+                return;
+            }
+            
+            Bukkit.broadcastMessage(ChatColor.GREEN + "Generated " + successful + "/" + 
+                    teamsToScatter.size() + " team locations. Preloading chunks...");
+            
+            currentPhase = ScatterPhase.PRELOADING_CHUNKS;
+            chunkIterator = chunksToPreload.iterator();
+            totalChunksToPreload = chunksToPreload.size();
+        }
     }
-
-    private boolean isLocationValidWithReducedDistance(Location location, int minDistance) {
-        // Check distance from other team locations with reduced requirement
-        for (Location existingLocation : teamScatterLocations.values()) {
-            if (location.distance(existingLocation) < minDistance) {
-                return false;
-            }
-        }
-
-        // Check if within square border
-        double deltaX = Math.abs(location.getX() - borderCenter.getX());
-        double deltaZ = Math.abs(location.getZ() - borderCenter.getZ());
-
-        return deltaX <= effectiveBorderRadius && deltaZ <= effectiveBorderRadius;
-    }
-
-    private Location findValidTeamLocation(Random random, UHCTeam team, ScatterAttempt attempt) {
-        // Strategy 1: Try improved random distribution
-        for (int i = 0; i < MAX_ATTEMPTS_PER_LOCATION / 2 && attempt.attempts < MAX_ATTEMPTS_PER_LOCATION; i++) {
+    
+    private Location findValidLocation(UHCTeam team, Random random) {
+        ScatterAttempt attempt = scatterAttempts.get(team.getTeamId());
+        
+        for (int i = 0; i < 10 && attempt.attempts < MAX_ATTEMPTS_PER_LOCATION; i++) {
             attempt.attempts++;
-
-            Location candidate = generateRandomLocation(random);
-            if (candidate == null) {
-                attempt.failureReason = "Could not generate random location";
-                continue;
-            }
-
-            if (!GameUtil.isLocationSafe(candidate)) {
-                attempt.failureReason = "Location not safe";
-                attempt.lastAttemptLocation = candidate;
-                continue;
-            }
-
-            if (!isValidTeamLocation(candidate)) {
-                attempt.failureReason = "Location conflicts with other teams or border";
-                attempt.lastAttemptLocation = candidate;
-                continue;
-            }
-
-            return candidate;
-        }
-
-        // Strategy 2: Try grid-based approach if random failed
-        int teamIndex = new ArrayList<>(teamsToScatter).indexOf(team);
-        if (teamIndex >= 0) {
-            Location gridCandidate = generateGridBasedLocation(random, teamIndex, teamsToScatter.size());
-
-            if (gridCandidate != null && GameUtil.isLocationSafe(gridCandidate) && isValidTeamLocation(gridCandidate)) {
-                UHC.getInstance().getLogger().info("Found valid location using grid strategy for team: " + team.getTeamName());
-                return gridCandidate;
-            } else {
-                attempt.failureReason = "Grid-based location also failed";
-            }
-        }
-
-        // Strategy 3: Try with reduced distance requirements
-        for (int i = 0; i < MAX_ATTEMPTS_PER_LOCATION / 4 && attempt.attempts < MAX_ATTEMPTS_PER_LOCATION; i++) {
-            attempt.attempts++;
-
-            Location candidate = generateRandomLocation(random);
-            if (candidate != null && GameUtil.isLocationSafe(candidate) &&
-                    isLocationValidWithReducedDistance(candidate, 60)) {
-                UHC.getInstance().getLogger().info("Found valid location using reduced distance for team: " + team.getTeamName());
+            
+            // Generate random location within usable area
+            double usableRadius = borderRadius - bufferFromBorder;
+            double x = (random.nextDouble() * 2 - 1) * usableRadius;
+            double z = (random.nextDouble() * 2 - 1) * usableRadius;
+            
+            Location candidate = new Location(world, x, 0, z);
+            int y = world.getHighestBlockYAt(candidate);
+            candidate.setY(y + 1);
+            
+            // Validate location
+            if (isLocationValid(candidate)) {
                 return candidate;
             }
         }
-
+        
         return null;
     }
-
-    private Location generateRandomLocation(Random random) {
-        try {
-            // Generate random coordinates within the square border area
-            // Border extends from -borderRadius to +borderRadius in both X and Z
-            int x = (int) (borderCenter.getX() + (random.nextDouble() * 2 - 1) * borderRadius);
-            int z = (int) (borderCenter.getZ() + (random.nextDouble() * 2 - 1) * borderRadius);
-
-            Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
-            int groundY = world.getHighestBlockYAt(candidate);
-
-            // Ensure reasonable Y coordinate
-            if (groundY < 1) groundY = 64;
-            if (groundY > 200) groundY = 100;
-
-            candidate.setY(groundY + 1);
-            return candidate;
-        } catch (Exception e) {
-            UHC.getInstance().getLogger().warning("Error generating random location: " + e.getMessage());
-            return null;
-        }
-    }
-
-    private boolean isValidTeamLocation(Location location) {
+    
+    private boolean isLocationValid(Location location) {
         // Check if location is safe
         if (!GameUtil.isLocationSafe(location)) {
             return false;
         }
-
-        // Check distance from other team locations
+        
+        // Check distance from border
+        double distanceFromCenter = Math.max(
+            Math.abs(location.getX()),
+            Math.abs(location.getZ())
+        );
+        if (distanceFromCenter > borderRadius - bufferFromBorder) {
+            return false;
+        }
+        
+        // Check distance from other teams
         for (Location existingLocation : teamScatterLocations.values()) {
-            double distance = location.distance(existingLocation);
-            if (distance < MIN_DISTANCE_BETWEEN_TEAMS) {
+            if (location.distance(existingLocation) < MIN_DISTANCE_BETWEEN_TEAMS) {
                 return false;
             }
         }
-
-        // Check if within square border
-        double deltaX = Math.abs(location.getX() - borderCenter.getX());
-        double deltaZ = Math.abs(location.getZ() - borderCenter.getZ());
-
-        boolean withinBorder = deltaX <= effectiveBorderRadius && deltaZ <= effectiveBorderRadius;
-
-        if (!withinBorder) {
-            UHC.getInstance().getLogger().fine("Location outside game border: deltaX=" +
-                    String.format("%.1f", deltaX) + ", deltaZ=" + String.format("%.1f", deltaZ) +
-                    ", effectiveRadius=" + String.format("%.1f", effectiveBorderRadius) +
-                    " (game border: " + game.getInitialBorderSize() + ")");
-        }
-
-        return withinBorder;
-    }
-
-    private Location generateGridBasedLocation(Random random, int teamIndex, int totalTeams) {
-        try {
-            // Use game border center
-            double centerX = borderCenter.getX();
-            double centerZ = borderCenter.getZ();
-
-            // Create a grid pattern for the square border area
-            int gridSize = (int) Math.ceil(Math.sqrt(totalTeams));
-            double gridSpacing = (borderRadius * 2) / (gridSize + 1);
-
-            // Calculate grid position
-            int gridX = teamIndex % gridSize;
-            int gridZ = teamIndex / gridSize;
-
-            // Calculate base position - distribute evenly across the square
-            double baseX = centerX - borderRadius + (gridX + 1) * gridSpacing;
-            double baseZ = centerZ - borderRadius + (gridZ + 1) * gridSpacing;
-
-            // Add random offset within grid cell
-            double offsetRange = gridSpacing * 0.3; // 30% of grid spacing
-            double offsetX = (random.nextDouble() - 0.5) * offsetRange;
-            double offsetZ = (random.nextDouble() - 0.5) * offsetRange;
-
-            int x = (int) (baseX + offsetX);
-            int z = (int) (baseZ + offsetZ);
-
-            Location candidate = new Location(world, x + 0.5, 0, z + 0.5);
-            int groundY = world.getHighestBlockYAt(candidate);
-
-            if (groundY < 1) groundY = 64;
-            if (groundY > 200) groundY = 100;
-
-            candidate.setY(groundY + 1);
-
-            return candidate;
-
-        } catch (Exception e) {
-            UHC.getInstance().getLogger().warning("Error generating grid-based location: " + e.getMessage());
-            return null;
-        }
-    }
-
-    private void preloadChunks() {
-        int chunksLoaded = 0;
-
-        while (chunkIterator.hasNext() && chunksLoaded < CHUNKS_PER_TICK) {
-            Chunk chunk = chunkIterator.next();
-
-            try {
-                if (!chunk.isLoaded()) {
-                    chunk.load(true);
-                }
-                chunksLoaded++;
-            } catch (Exception e) {
-                UHC.getInstance().getLogger().warning("Failed to load chunk: " + e.getMessage());
-                chunksLoaded++;
+        
+        // Check distance from online players
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (player.getWorld().equals(world) && 
+                player.getLocation().distance(location) < MIN_DISTANCE_FROM_PLAYERS) {
+                return false;
             }
         }
-
-        if (!chunkIterator.hasNext()) {
-            currentPhase = ScatterPhase.TELEPORTING_TEAMS;
-            currentTeamIndex = 0;
-            Bukkit.broadcastMessage(ChatColor.YELLOW + "Chunks preloaded. Starting team teleportation...");
+        
+        return true;
+    }
+    
+    private void addChunksToPreload(Location location) {
+        Chunk centerChunk = location.getChunk();
+        
+        // Add chunks in radius around location
+        for (int dx = -CHUNK_PRELOAD_RADIUS; dx <= CHUNK_PRELOAD_RADIUS; dx++) {
+            for (int dz = -CHUNK_PRELOAD_RADIUS; dz <= CHUNK_PRELOAD_RADIUS; dz++) {
+                chunksToPreload.add(new ChunkCoordinate(
+                    centerChunk.getX() + dx,
+                    centerChunk.getZ() + dz
+                ));
+            }
         }
     }
-
+    
+    private void preloadChunks() {
+        int chunksLoadedThisTick = 0;
+        
+        while (chunkIterator.hasNext() && chunksLoadedThisTick < CHUNKS_PER_TICK) {
+            ChunkCoordinate coord = chunkIterator.next();
+            
+            if (!preloadedChunks.contains(coord)) {
+                // Force load chunk
+                world.getChunkAt(coord.x, coord.z).load(true);
+                preloadedChunks.add(coord);
+                chunksLoadedThisTick++;
+            }
+        }
+        
+        // Progress update
+        int progress = (int) ((double) preloadedChunks.size() / totalChunksToPreload * 100);
+        if (preloadedChunks.size() % 10 == 0) {
+            UHC.getInstance().getLogger().info("Chunk preloading: " + progress + "% complete (" + 
+                    preloadedChunks.size() + "/" + totalChunksToPreload + ")");
+        }
+        
+        // Check if done
+        if (!chunkIterator.hasNext()) {
+            Bukkit.broadcastMessage(ChatColor.GREEN + "Chunks preloaded. Starting teleportation...");
+            currentPhase = ScatterPhase.TELEPORTING_TEAMS;
+            currentTeamIndex = 0;
+        }
+    }
+    
     private void teleportTeams() {
         if (currentTeamIndex >= teamsToScatter.size()) {
             currentPhase = ScatterPhase.COMPLETED;
             return;
         }
-
+        
         int teleportsThisTick = 0;
-
+        
         while (currentTeamIndex < teamsToScatter.size() && teleportsThisTick < TELEPORTS_PER_TICK) {
             UHCTeam team = teamsToScatter.get(currentTeamIndex);
             ScatterAttempt attempt = scatterAttempts.get(team.getTeamId());
-
-            if (attempt.successful) {
-                Location teamLocation = teamScatterLocations.get(team.getTeamId());
-                if (teamLocation != null) {
-                    int scatteredMembers = scatterTeamMembers(team, teamLocation);
-                    UHC.getInstance().getLogger().info("Scattered team " + team.getTeamName() + ": " +
-                            scatteredMembers + " members at " + formatLocation(teamLocation));
-                }
+            
+            if (attempt.successful && attempt.finalLocation != null) {
+                scatterTeamMembers(team, attempt.finalLocation);
+                UHC.getInstance().getLogger().info("Teleported team " + team.getTeamName());
             } else {
-                // Team failed to scatter, keep at spawn or use fallback
-                List<Player> onlineMembers = team.getOnlineMembers();
-                for (Player player : onlineMembers) {
-                    player.sendMessage(ChatColor.RED + "Your team could not be scattered and will remain near spawn!");
-                }
-                UHC.getInstance().getLogger().warning("Team " + team.getTeamName() +
-                        " could not be scattered: " + attempt.failureReason);
+                UHC.getInstance().getLogger().warning("Skipping team " + team.getTeamName() + 
+                        " - no valid location");
             }
-
+            
             currentTeamIndex++;
             teleportsThisTick++;
-
-            // Progress update
-            if (currentTeamIndex % Math.max(1, teamsToScatter.size() / 4) == 0) {
-                double progress = (double) currentTeamIndex / teamsToScatter.size() * 100;
-                Bukkit.broadcastMessage(ChatColor.YELLOW + "Teleporting teams: " + (int)progress + "% complete");
-            }
+        }
+        
+        // Progress update
+        if (currentTeamIndex % 5 == 0) {
+            double progress = (double) currentTeamIndex / teamsToScatter.size() * 100;
+            Bukkit.broadcastMessage(ChatColor.YELLOW + "Teleporting teams: " + 
+                    String.format("%.0f%%", progress) + " complete");
         }
     }
-
-    private void complete() {
-        int successfulScatters = teamScatterLocations.size();
-        int totalTeams = teamsToScatter.size();
-        int failedScatters = totalTeams - successfulScatters;
-
-        if (failedScatters > 0) {
-            Bukkit.broadcastMessage(ChatColor.YELLOW + "Scattering completed with issues! " +
-                    successfulScatters + "/" + totalTeams + " teams scattered successfully.");
-            Bukkit.broadcastMessage(ChatColor.RED + "" + failedScatters + " teams could not be scattered and remain near spawn.");
-        } else {
-            Bukkit.broadcastMessage(ChatColor.GREEN + "Scattering completed successfully! " +
-                    successfulScatters + "/" + totalTeams + " teams scattered.");
+    
+    private void scatterTeamMembers(UHCTeam team, Location teamCenter) {
+        List<Player> members = team.getOnlineMembers();
+        
+        if (members.isEmpty()) {
+            return;
         }
-
-        UHC.getInstance().getLogger().info("Scatter completed: " + successfulScatters + "/" + totalTeams +
-                " successful, " + failedScatters + " failed");
-
-        // Log scatter distribution for debugging
-        logScatterDistribution();
-
-        // Report statistics to game
+        
+        if (members.size() == 1) {
+            // Solo team
+            members.get(0).teleport(teamCenter);
+            members.get(0).sendMessage(ChatColor.GREEN + "You have been scattered!");
+        } else {
+            // Multiple members - scatter around center
+            List<Location> memberLocations = generateTeamMemberLocations(teamCenter, members.size());
+            
+            for (int i = 0; i < members.size(); i++) {
+                Location loc = i < memberLocations.size() ? memberLocations.get(i) : teamCenter;
+                members.get(i).teleport(loc);
+                members.get(i).sendMessage(ChatColor.GREEN + "You have been scattered with your team!");
+            }
+            
+            team.sendMessage(ChatColor.YELLOW + "Your team has been scattered together!");
+        }
+    }
+    
+    private List<Location> generateTeamMemberLocations(Location center, int count) {
+        List<Location> locations = new ArrayList<>();
+        locations.add(center); // Team leader at center
+        
+        if (count <= 1) {
+            return locations;
+        }
+        
+        Random random = new Random();
+        double angleStep = 2 * Math.PI / (count - 1);
+        
+        for (int i = 1; i < count; i++) {
+            double angle = angleStep * (i - 1);
+            double distance = 5 + random.nextDouble() * (MAX_TEAM_SPREAD - 5);
+            
+            double x = center.getX() + distance * Math.cos(angle);
+            double z = center.getZ() + distance * Math.sin(angle);
+            
+            Location memberLoc = new Location(world, x, 0, z);
+            memberLoc.setY(world.getHighestBlockYAt(memberLoc) + 1);
+            
+            // Ensure location is safe
+            if (GameUtil.isLocationSafe(memberLoc)) {
+                locations.add(memberLoc);
+            } else {
+                // Try closer to center
+                distance = 3 + random.nextDouble() * 5;
+                x = center.getX() + distance * Math.cos(angle);
+                z = center.getZ() + distance * Math.sin(angle);
+                memberLoc = new Location(world, x, 0, z);
+                memberLoc.setY(world.getHighestBlockYAt(memberLoc) + 1);
+                locations.add(memberLoc);
+            }
+        }
+        
+        return locations;
+    }
+    
+    private void complete() {
+        long duration = System.currentTimeMillis() - startTime;
+        int successful = (int) scatterAttempts.values().stream()
+                .filter(a -> a.successful)
+                .count();
+        
+        Bukkit.broadcastMessage(ChatColor.GREEN + "=== Scatter Complete ===");
+        Bukkit.broadcastMessage(ChatColor.GREEN + "Teams scattered: " + successful + "/" + teamsToScatter.size());
+        Bukkit.broadcastMessage(ChatColor.GREEN + "Time taken: " + (duration / 1000.0) + " seconds");
+        Bukkit.broadcastMessage(ChatColor.GREEN + "=======================");
+        
+        UHC.getInstance().getLogger().info("Scatter completed in " + duration + "ms");
+        logScatterStatistics();
+        
+        // Notify game
         if (game != null) {
             game.onScatterCompleted(getScatterStatistics());
         }
-
-        // Start the game after a delay
+        
+        // Start game after short delay
         new BukkitRunnable() {
             @Override
             public void run() {
                 game.startGame();
             }
         }.runTaskLater(UHC.getInstance(), 40L); // 2 second delay
-
+        
         cancel();
     }
-
-    private void handleError(String error) {
-        UHC.getInstance().getLogger().severe("Scatter failed: " + error);
-        Bukkit.broadcastMessage(ChatColor.RED + "Scatter failed: " + error);
-        Bukkit.broadcastMessage(ChatColor.YELLOW + "Starting game without scattering...");
-
-        // Start game anyway
+    
+    private void handleFailure() {
+        Bukkit.broadcastMessage(ChatColor.RED + "Scatter failed! Starting game without scattering...");
+        
         new BukkitRunnable() {
             @Override
             public void run() {
                 game.startGame();
             }
         }.runTaskLater(UHC.getInstance(), 60L);
-
+        
         cancel();
     }
-
-    private List<UHCTeam> getValidTeamsToScatter() {
-        List<UHCTeam> teams = new ArrayList<>();
-
-        for (UHCTeam team : game.getTeamManager().getAllTeams()) {
-            if (team.getSize() > 0 && hasOnlineMembers(team)) {
-                teams.add(team);
-            } else {
-                UHC.getInstance().getLogger().info("Skipping team with no online members: " + team.getTeamName());
-            }
-        }
-
-        return teams;
+    
+    private void handleError(String error) {
+        UHC.getInstance().getLogger().severe("Scatter error: " + error);
+        currentPhase = ScatterPhase.FAILED;
     }
-
-    private boolean hasOnlineMembers(UHCTeam team) {
-        return !team.getOnlineMembers().isEmpty();
-    }
-
-    private int scatterTeamMembers(UHCTeam team, Location teamCenter) {
-        List<Player> onlineMembers = team.getOnlineMembers();
-        if (onlineMembers.isEmpty()) {
-            return 0;
-        }
-
-        if (onlineMembers.size() == 1 || game.isSoloMode()) {
-            // Single player (solo team), just teleport to team center
-            Player player = onlineMembers.get(0);
-            player.teleport(teamCenter);
-            player.sendMessage(ChatColor.GREEN + "You have been scattered!");
-            return 1;
-        }
-
-        // Multiple players - scatter them around the team center
-        List<Location> memberLocations = generateTeamMemberLocations(teamCenter, onlineMembers.size());
-        int membersScattered = 0;
-
-        for (int i = 0; i < onlineMembers.size(); i++) {
-            Player player = onlineMembers.get(i);
-            Location memberLocation;
-
-            if (i < memberLocations.size()) {
-                memberLocation = memberLocations.get(i);
-            } else {
-                memberLocation = teamCenter;
-            }
-
-            player.teleport(memberLocation);
-            player.sendMessage(ChatColor.GREEN + "You have been scattered with your team " + team.getFormattedName());
-            membersScattered++;
-        }
-
-        // Send team message
-        team.sendMessage(ChatColor.YELLOW + "Your team has been scattered! " + membersScattered + " members teleported.");
-        return membersScattered;
-    }
-
-    /**
-     * Generate safe locations for team members around their team center
-     */
-    private List<Location> generateTeamMemberLocations(Location teamCenter, int memberCount) {
-        List<Location> locations = new ArrayList<>();
-        Random random = new Random();
-
-        // Always add the team center as the first location (for team leader)
-        locations.add(teamCenter.clone());
-
-        // If only one member, return just the center
-        if (memberCount <= 1) {
-            return locations;
-        }
-
-        // Generate locations in a circle pattern around the team center
-        for (int i = 1; i < memberCount; i++) {
-            Location memberLocation = findSafeLocationAroundCenter(teamCenter, i, memberCount, random);
-
-            if (memberLocation != null) {
-                locations.add(memberLocation);
-            } else {
-                // Fallback to team center if we can't find a safe nearby location
-                locations.add(teamCenter.clone());
-                UHC.getInstance().getLogger().info("Could not find safe location for team member " + (i + 1) +
-                        ", using team center as fallback");
-            }
-        }
-
-        return locations;
-    }
-
-    /**
-     * Find a safe location around the team center for a specific team member
-     */
-    private Location findSafeLocationAroundCenter(Location center, int memberIndex, int totalMembers, Random random) {
-        // Strategy 1: Systematic circle placement
-        if (memberIndex <= 8) {
-            double angle = (memberIndex * 45.0) * Math.PI / 180.0; // 8 directions around circle
-            double distance = 8 + random.nextDouble() * 12; // 8-20 blocks from center
-
-            Location systematic = calculateLocationAtAngleAndDistance(center, angle, distance);
-            if (systematic != null && GameUtil.isLocationSafe(systematic)) {
-                return systematic;
-            }
-        }
-
-        // Strategy 2: Random placement in expanding rings
-        for (int ring = 1; ring <= 3; ring++) { // Try 3 rings around center
-            for (int attempt = 0; attempt < 8; attempt++) { // 8 attempts per ring
-                double angle = random.nextDouble() * 2 * Math.PI;
-                double minDistance = ring * 8; // 8, 16, 24 blocks
-                double maxDistance = minDistance + 8;
-                double distance = minDistance + random.nextDouble() * (maxDistance - minDistance);
-
-                Location candidate = calculateLocationAtAngleAndDistance(center, angle, distance);
-                if (candidate != null && GameUtil.isLocationSafe(candidate)) {
-                    return candidate;
-                }
-            }
-        }
-
-        // Strategy 3: Try nearby safe spots with reduced distance
-        for (int attempt = 0; attempt < 15; attempt++) {
-            double angle = random.nextDouble() * 2 * Math.PI;
-            double distance = 5 + random.nextDouble() * 15; // 5-20 blocks
-
-            Location candidate = calculateLocationAtAngleAndDistance(center, angle, distance);
-            if (candidate != null && GameUtil.isLocationSafe(candidate)) {
-                return candidate;
-            }
-        }
-
-        // Strategy 4: Grid-based placement as last resort
-        int[] xOffsets = {-10, -5, 0, 5, 10, -15, 15, -8, 8, -12, 12};
-        int[] zOffsets = {-10, -5, 0, 5, 10, -15, 15, -8, 8, -12, 12};
-
-        for (int xOffset : xOffsets) {
-            for (int zOffset : zOffsets) {
-                if (xOffset == 0 && zOffset == 0) continue; // Skip center
-
-                Location candidate = center.clone().add(xOffset, 0, zOffset);
-                candidate.setY(world.getHighestBlockYAt(candidate) + 1);
-
-                if (GameUtil.isLocationSafe(candidate)) {
-                    return candidate;
-                }
-            }
-        }
-
-        return null; // No safe location found
-    }
-
-    /**
-     * Calculate a location at a specific angle and distance from center
-     */
-    private Location calculateLocationAtAngleAndDistance(Location center, double angle, double distance) {
-        try {
-            double x = center.getX() + distance * Math.cos(angle);
-            double z = center.getZ() + distance * Math.sin(angle);
-
-            Location candidate = new Location(world, x, 0, z);
-            int groundY = world.getHighestBlockYAt(candidate);
-
-            // Ensure reasonable Y coordinate
-            if (groundY < 1) groundY = 64;
-            if (groundY > 200) groundY = 100;
-
-            candidate.setY(groundY + 1);
-            return candidate;
-        } catch (Exception e) {
-            UHC.getInstance().getLogger().warning("Error calculating location at angle/distance: " + e.getMessage());
-            return null;
-        }
-    }
-
-    private void logScatterDistribution() {
-        if (!teamScatterLocations.isEmpty()) {
-            UHC.getInstance().getLogger().info("=== Scatter Distribution Analysis ===");
-
-            double totalDistanceFromCenter = 0;
-            double minDistance = Double.MAX_VALUE;
-            double maxDistance = 0;
-
-            for (Map.Entry<UUID, Location> entry : teamScatterLocations.entrySet()) {
-                Location loc = entry.getValue();
-                double distanceFromCenter = Math.sqrt(Math.pow(loc.getX() - borderCenter.getX(), 2) +
-                        Math.pow(loc.getZ() - borderCenter.getZ(), 2));
-
-                totalDistanceFromCenter += distanceFromCenter;
-                minDistance = Math.min(minDistance, distanceFromCenter);
-                maxDistance = Math.max(maxDistance, distanceFromCenter);
-            }
-
-            double averageDistance = totalDistanceFromCenter / teamScatterLocations.size();
-
-            UHC.getInstance().getLogger().info("Distance from center - Min: " + String.format("%.1f", minDistance) +
-                    ", Max: " + String.format("%.1f", maxDistance) +
-                    ", Average: " + String.format("%.1f", averageDistance));
-            UHC.getInstance().getLogger().info("Border extends ±" + (int)borderRadius + " blocks (total " + 
-                    (int)(borderRadius * 2) + "x" + (int)(borderRadius * 2) + " area = " + 
-                    String.format("%.0f", borderRadius * 2 * borderRadius * 2) + " blocks²)");
-            UHC.getInstance().getLogger().info("====================================");
-        }
-    }
-
-    private void addSurroundingChunks(Location center) {
-        Chunk centerChunk = center.getChunk();
-        int centerX = centerChunk.getX();
-        int centerZ = centerChunk.getZ();
-
-        // Add chunks in a 3x3 area around the team location
-        for (int x = centerX - 1; x <= centerX + 1; x++) {
-            for (int z = centerZ - 1; z <= centerZ + 1; z++) {
-                chunksToPreload.add(world.getChunkAt(x, z));
-            }
-        }
-    }
-
+    
     private String formatLocation(Location loc) {
         return String.format("(%d, %d, %d)", loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
     }
-
-    public void startScattering() {
-        this.runTaskTimer(UHC.getInstance(), 0, 2); // Run every 2 ticks
+    
+    private void logScatterStatistics() {
+        UHC.getInstance().getLogger().info("=== Scatter Statistics ===");
+        
+        // Distance analysis
+        List<Double> distances = new ArrayList<>();
+        List<Location> locations = new ArrayList<>(teamScatterLocations.values());
+        
+        for (int i = 0; i < locations.size(); i++) {
+            for (int j = i + 1; j < locations.size(); j++) {
+                distances.add(locations.get(i).distance(locations.get(j)));
+            }
+        }
+        
+        if (!distances.isEmpty()) {
+            double minDist = distances.stream().min(Double::compare).orElse(0.0);
+            double maxDist = distances.stream().max(Double::compare).orElse(0.0);
+            double avgDist = distances.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+            
+            UHC.getInstance().getLogger().info("Team distances - Min: " + String.format("%.1f", minDist) +
+                    ", Max: " + String.format("%.1f", maxDist) +
+                    ", Avg: " + String.format("%.1f", avgDist));
+        }
+        
+        // Border usage
+        double maxDistFromCenter = locations.stream()
+                .mapToDouble(loc -> Math.max(Math.abs(loc.getX()), Math.abs(loc.getZ())))
+                .max()
+                .orElse(0.0);
+        
+        UHC.getInstance().getLogger().info("Border usage: " + 
+                String.format("%.1f%%", (maxDistFromCenter / borderRadius) * 100));
+        UHC.getInstance().getLogger().info("Chunks preloaded: " + preloadedChunks.size());
+        UHC.getInstance().getLogger().info("========================");
     }
-
+    
+    public void startScattering() {
+        this.runTaskTimer(UHC.getInstance(), 0L, 2L); // Run every 2 ticks
+    }
+    
+    @Override
+    public void cancel() {
+        this.cancelled = true;
+        super.cancel();
+        
+        // Keep chunks loaded for a bit longer
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                for (ChunkCoordinate coord : preloadedChunks) {
+                    Chunk chunk = world.getChunkAt(coord.x, coord.z);
+                    if (chunk.isLoaded() && !chunk.isForceLoaded()) {
+                        chunk.unload(true);
+                    }
+                }
+            }
+        }.runTaskLater(UHC.getInstance(), 200L); // Unload after 10 seconds
+    }
+    
     public double getProgress() {
         switch (currentPhase) {
+            case INITIALIZING:
+                return 0;
             case VALIDATING_TEAMS:
                 return 5;
             case GENERATING_LOCATIONS:
-                return 5 + ((double) currentTeamIndex / teamsToScatter.size() * 25);
-            case HANDLING_FAILURES:
-                return 30 + ((double) currentTeamIndex / Math.max(1, getFailedTeamCount()) * 15);
+                return 5 + (currentTeamIndex / (double) Math.max(1, teamsToScatter.size())) * 30;
             case PRELOADING_CHUNKS:
-                if (chunksToPreload.isEmpty()) return 60;
-                int chunksProcessed = chunksToPreload.size() - getChunksRemaining();
-                return 45 + ((double) chunksProcessed / chunksToPreload.size() * 15);
+                return 35 + (preloadedChunks.size() / (double) Math.max(1, totalChunksToPreload)) * 30;
             case TELEPORTING_TEAMS:
-                return 60 + ((double) currentTeamIndex / teamsToScatter.size() * 40);
+                return 65 + (currentTeamIndex / (double) Math.max(1, teamsToScatter.size())) * 35;
             case COMPLETED:
                 return 100;
             default:
                 return 0;
         }
     }
-
-    private int getFailedTeamCount() {
-        int failed = 0;
-        for (UHCTeam team : teamsToScatter) {
-            ScatterAttempt attempt = scatterAttempts.get(team.getTeamId());
-            if (attempt != null && !attempt.successful) {
-                failed++;
-            }
-        }
-        return failed;
-    }
-
-    private int getChunksRemaining() {
-        if (chunkIterator == null) return 0;
-        int remaining = 0;
-        Iterator<Chunk> temp = chunksToPreload.iterator();
-        while (temp.hasNext()) {
-            temp.next();
-            remaining++;
-        }
-        return remaining;
-    }
-
+    
     public boolean isCancelled() {
         return cancelled;
     }
-
-    @Override
-    public void cancel() {
-        this.cancelled = true;
-        super.cancel();
-        UHC.getInstance().getLogger().info("Scatter manager cancelled");
-    }
-
-    public Map<UUID, Location> getTeamScatterLocations() {
-        return new HashMap<>(teamScatterLocations);
-    }
-
-    public int getSuccessfulScatters() {
-        return teamScatterLocations.size();
-    }
-
-    public int getTotalTeams() {
-        return teamsToScatter.size();
-    }
-
+    
     public String getCurrentPhase() {
         return currentPhase.name();
     }
-
+    
     public ScatterStatistics getScatterStatistics() {
-        int successful = 0;
-        int failed = 0;
-        int totalAttempts = 0;
-        String mostCommonFailure = "";
-
-        Map<String, Integer> failureReasons = new HashMap<>();
-
-        for (ScatterAttempt attempt : scatterAttempts.values()) {
-            totalAttempts += attempt.attempts;
-            if (attempt.successful) {
-                successful++;
-            } else {
-                failed++;
-                failureReasons.merge(attempt.failureReason, 1, Integer::sum);
-            }
-        }
-
-        if (!failureReasons.isEmpty()) {
-            mostCommonFailure = failureReasons.entrySet().stream()
-                    .max(Map.Entry.comparingByValue())
-                    .map(Map.Entry::getKey)
-                    .orElse("");
-        }
-
-        return new ScatterStatistics(successful, failed, totalAttempts, mostCommonFailure,
-                (int)effectiveBorderRadius, MIN_DISTANCE_BETWEEN_TEAMS);
+        int successful = (int) scatterAttempts.values().stream()
+                .filter(a -> a.successful)
+                .count();
+        int failed = teamsToScatter.size() - successful;
+        int totalAttempts = scatterAttempts.values().stream()
+                .mapToInt(a -> a.attempts)
+                .sum();
+        
+        return new ScatterStatistics(
+            successful,
+            failed,
+            totalAttempts,
+            failed > 0 ? "See logs for details" : "",
+            (int) borderRadius,
+            MIN_DISTANCE_BETWEEN_TEAMS
+        );
     }
-
+    
     public static class ScatterStatistics {
         public final int successfulTeams;
         public final int failedTeams;
@@ -1042,9 +604,9 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         public final String mostCommonFailureReason;
         public final int usedRadius;
         public final int minDistanceBetweenTeams;
-
+        
         public ScatterStatistics(int successfulTeams, int failedTeams, int totalAttempts,
-                                 String mostCommonFailureReason, int usedRadius, int minDistanceBetweenTeams) {
+                                String mostCommonFailureReason, int usedRadius, int minDistanceBetweenTeams) {
             this.successfulTeams = successfulTeams;
             this.failedTeams = failedTeams;
             this.totalAttempts = totalAttempts;
