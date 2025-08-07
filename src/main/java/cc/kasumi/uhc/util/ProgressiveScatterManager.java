@@ -5,6 +5,7 @@ import cc.kasumi.uhc.game.Game;
 import cc.kasumi.uhc.team.UHCTeam;
 import lombok.Getter;
 import org.bukkit.*;
+import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
@@ -343,7 +344,19 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         double z = (random.nextDouble() * 2 - 1) * maxRadius;
         
         Location candidate = new Location(world, x, 0, z);
-        int y = world.getHighestBlockYAt(candidate);
+        // Find the highest solid block
+        int highestY = world.getHighestBlockYAt((int)x, (int)z);
+        
+        // getHighestBlockYAt returns the Y of the highest non-air block
+        // We need to check if this block is solid and safe to stand on
+        Block highestBlock = world.getBlockAt((int)x, highestY, (int)z);
+        
+        // If the highest block is not solid (like leaves, water), go down to find solid ground
+        int y = highestY;
+        while (y > 0 && !highestBlock.getType().isSolid()) {
+            y--;
+            highestBlock = world.getBlockAt((int)x, y, (int)z);
+        }
         
         // Ensure Y is reasonable
         if (y < 1) {
@@ -352,6 +365,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             y = 250; // Cap at reasonable height
         }
         
+        // Place player one block above the solid block
         candidate.setY(y + 1);
         
         return candidate;
@@ -401,7 +415,19 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             double z = (random.nextDouble() * 2 - 1) * usableRadius;
             
             Location candidate = new Location(world, x, 0, z);
-            int y = world.getHighestBlockYAt(candidate);
+            // Find the highest solid block
+            int highestY = world.getHighestBlockYAt((int)x, (int)z);
+            
+            // getHighestBlockYAt returns the Y of the highest non-air block
+            // We need to check if this block is solid and safe to stand on
+            Block highestBlock = world.getBlockAt((int)x, highestY, (int)z);
+            
+            // If the highest block is not solid (like leaves, water), go down to find solid ground
+            int y = highestY;
+            while (y > 0 && !highestBlock.getType().isSolid()) {
+                y--;
+                highestBlock = world.getBlockAt((int)x, y, (int)z);
+            }
             
             // Ensure Y is reasonable
             if (y < 1) {
@@ -410,7 +436,14 @@ public class ProgressiveScatterManager extends BukkitRunnable {
                 y = 250; // Cap at reasonable height
             }
             
+            // Place player one block above the solid block
             candidate.setY(y + 1);
+            
+            // Debug the actual block
+            if (attempt.attempts <= 5) {
+                UHC.getInstance().getLogger().info("DEBUG: At " + (int)x + "," + (int)z + 
+                    " highestY=" + highestY + " solidY=" + y + " block=" + highestBlock.getType());
+            }
             
             // Debug logging
             if (attempt.attempts <= 5 || attempt.attempts % 10 == 0) {
