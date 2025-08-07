@@ -210,6 +210,15 @@ public class WorldCommand extends BaseCommand {
                 playerLocation.getBlockZ()
             );
             
+            // Ensure spawn chunks stay loaded
+            targetWorld.setKeepSpawnInMemory(true);
+            
+            // Force chunk load at spawn location to ensure it's generated
+            targetWorld.loadChunk(playerLocation.getBlockX() >> 4, playerLocation.getBlockZ() >> 4);
+            
+            // Save the world to persist the spawn location
+            targetWorld.save();
+            
             // Format the location for display
             String locationStr = String.format("X: %d, Y: %d, Z: %d", 
                 playerLocation.getBlockX(),
@@ -219,6 +228,7 @@ public class WorldCommand extends BaseCommand {
             
             player.sendMessage(ChatColor.GREEN + "Spawn set for world '" + targetWorld.getName() + "'!");
             player.sendMessage(ChatColor.GRAY + "New spawn: " + locationStr);
+            player.sendMessage(ChatColor.GRAY + "World saved to persist spawn location.");
             
             // If setting spawn for current world, note that
             if (targetWorld.equals(player.getWorld())) {
