@@ -66,16 +66,6 @@ public class ScatteringGameState extends GameState {
         event.setCancelled(true);
     }
     
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onPlayerMove(PlayerMoveEvent event) {
-        // Prevent any movement during scatter
-        if (event.getFrom().getX() != event.getTo().getX() ||
-            event.getFrom().getY() != event.getTo().getY() ||
-            event.getFrom().getZ() != event.getTo().getZ()) {
-            event.setCancelled(true);
-        }
-    }
-    
     @EventHandler
     public void onPlayerInteract(PlayerInteractEvent event) {
         // Prevent all interactions during scatter

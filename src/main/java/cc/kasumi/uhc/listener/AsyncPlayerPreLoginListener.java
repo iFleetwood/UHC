@@ -22,6 +22,7 @@ public class AsyncPlayerPreLoginListener implements Listener {
         event.setKickMessage(ChatColor.DARK_RED + "UHC isn't Initialized");
     }
 
+    /*
     @EventHandler(priority = EventPriority.LOW)
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
@@ -30,4 +31,6 @@ public class AsyncPlayerPreLoginListener implements Listener {
             player.kickPlayer(ChatColor.DARK_RED + "PLEASE USE 1.8.9 OR BELOW");
         }
     }
+
+     */
 }
