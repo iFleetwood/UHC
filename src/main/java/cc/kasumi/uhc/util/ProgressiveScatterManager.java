@@ -342,18 +342,17 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         double z = (random.nextDouble() * 2 - 1) * maxRadius;
         
         Location candidate = new Location(world, x, 0, z);
-        // Find the highest solid block
+        // Find the highest block Y coordinate
         int highestY = world.getHighestBlockYAt((int)x, (int)z);
         
-        // getHighestBlockYAt returns the Y of the highest non-air block
-        // We need to check if this block is solid and safe to stand on
-        Block highestBlock = world.getBlockAt((int)x, highestY, (int)z);
-        
-        // If the highest block is not solid (like leaves, water), go down to find solid ground
+        // Find the actual solid ground
         int y = highestY;
-        while (y > 0 && !highestBlock.getType().isSolid()) {
+        Block currentBlock = world.getBlockAt((int)x, y, (int)z);
+        
+        // If the highest block is air or non-solid, we need to go down
+        while (y > 0 && (!currentBlock.getType().isSolid() || currentBlock.getType() == Material.AIR)) {
             y--;
-            highestBlock = world.getBlockAt((int)x, y, (int)z);
+            currentBlock = world.getBlockAt((int)x, y, (int)z);
         }
         
         // Ensure Y is reasonable
@@ -413,18 +412,33 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             double z = (random.nextDouble() * 2 - 1) * usableRadius;
             
             Location candidate = new Location(world, x, 0, z);
-            // Find the highest solid block
+            // Find the highest block Y coordinate
             int highestY = world.getHighestBlockYAt((int)x, (int)z);
             
-            // getHighestBlockYAt returns the Y of the highest non-air block
-            // We need to check if this block is solid and safe to stand on
-            Block highestBlock = world.getBlockAt((int)x, highestY, (int)z);
+            // Debug initial Y
+            if (attempt.attempts <= 5) {
+                UHC.getInstance().getLogger().info("DEBUG: At " + (int)x + "," + (int)z + 
+                    " world.getHighestBlockYAt returned: " + highestY);
+            }
             
-            // If the highest block is not solid (like leaves, water), go down to find solid ground
+            // Find the actual solid ground
             int y = highestY;
-            while (y > 0 && !highestBlock.getType().isSolid()) {
+            Block currentBlock = world.getBlockAt((int)x, y, (int)z);
+            
+            // If the highest block is air or non-solid, we need to go down
+            while (y > 0 && (!currentBlock.getType().isSolid() || currentBlock.getType() == Material.AIR)) {
                 y--;
-                highestBlock = world.getBlockAt((int)x, y, (int)z);
+                currentBlock = world.getBlockAt((int)x, y, (int)z);
+            }
+            
+            // Debug what we found
+            if (attempt.attempts <= 5) {
+                Block aboveBlock = world.getBlockAt((int)x, y + 1, (int)z);
+                Block twoAboveBlock = world.getBlockAt((int)x, y + 2, (int)z);
+                UHC.getInstance().getLogger().info("DEBUG: Found solid at Y=" + y + 
+                    " block=" + currentBlock.getType() +
+                    " above=" + aboveBlock.getType() +
+                    " twoAbove=" + twoAboveBlock.getType());
             }
             
             // Ensure Y is reasonable
@@ -434,14 +448,23 @@ public class ProgressiveScatterManager extends BukkitRunnable {
                 y = 250; // Cap at reasonable height
             }
             
+            // Debug: Let's see what happens if we don't add 1
+            if (attempt.attempts <= 3) {
+                UHC.getInstance().getLogger().info("DEBUG: Setting Y to " + (y + 1) + " (solid block at " + y + ")");
+                
+                // Let's also check what getHighestBlockYAt actually returns
+                Block testBlock1 = world.getBlockAt((int)x, highestY, (int)z);
+                Block testBlock2 = world.getBlockAt((int)x, highestY + 1, (int)z);
+                Block testBlock3 = world.getBlockAt((int)x, highestY - 1, (int)z);
+                
+                UHC.getInstance().getLogger().info("DEBUG: getHighestBlockYAt=" + highestY + 
+                    " block@Y=" + testBlock1.getType() +
+                    " block@Y+1=" + testBlock2.getType() +
+                    " block@Y-1=" + testBlock3.getType());
+            }
+            
             // Place player one block above the solid block
             candidate.setY(y + 1);
-            
-            // Debug the actual block
-            if (attempt.attempts <= 5) {
-                UHC.getInstance().getLogger().info("DEBUG: At " + (int)x + "," + (int)z + 
-                    " highestY=" + highestY + " solidY=" + y + " block=" + highestBlock.getType());
-            }
             
             // Debug logging
             if (attempt.attempts <= 5 || attempt.attempts % 10 == 0) {
