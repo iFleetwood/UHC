@@ -722,7 +722,7 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         
         // Countdown before unfreezing
         new BukkitRunnable() {
-            int countdown = 3;
+            int countdown = 15;
             
             @Override
             public void run() {
