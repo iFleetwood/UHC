@@ -472,7 +472,6 @@ public class WorldManager {
         world.setThundering(false);
 
         // Set spawn at a reasonable height for flat world
-        world.setSpawnLocation(0, 64, 0);
 
         logger.info("Configured lobby world: " + world.getName());
     }

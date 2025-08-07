@@ -55,6 +55,7 @@ public class CutCleanListener extends BaseScenarioListener {
                     if (smeltInput.getDurability() == Short.MAX_VALUE) {
                         drop.setDurability(Short.MAX_VALUE);
                     }
+
                     if (smeltInput.isSimilar(drop)) {
                         final ItemStack smeltResult = recipe.getResult();
                         smeltResult.setAmount(drop.getAmount());
