@@ -1,6 +1,8 @@
 package cc.kasumi.uhc.spectator;
 
 import cc.kasumi.commons.entityhider.EntityHider;
+import cc.kasumi.commons.menu.Button;
+import cc.kasumi.commons.menu.Menu;
 import cc.kasumi.uhc.UHC;
 import cc.kasumi.uhc.game.Game;
 import cc.kasumi.uhc.player.PlayerState;
@@ -10,11 +12,14 @@ import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
+import org.bukkit.event.inventory.ClickType;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -316,5 +321,71 @@ public class SpectatorManager {
             }
         }
         return spectators;
+    }
+
+    /**
+     * Open teleportation menu for spectator using commons menu system
+     */
+    public void openTeleportationMenu(Player spectator) {
+        if (!isSpectator(spectator)) return;
+
+        List<Player> alivePlayers = getAlivePlayers();
+        if (alivePlayers.isEmpty()) {
+            spectator.sendMessage(ChatColor.RED + "No alive players to teleport to!");
+            return;
+        }
+
+        Menu menu = new Menu() {
+            @Override
+            public String getTitle(Player player) {
+                return ChatColor.GOLD + "Teleport to Player";
+            }
+
+            @Override
+            public Map<Integer, Button> getButtons(Player player) {
+                Map<Integer, Button> buttons = new HashMap<>();
+                
+                int slot = 0;
+                for (Player alivePlayer : alivePlayers) {
+                    if (slot >= 54) break; // Max inventory size
+                    
+                    buttons.put(slot, new Button() {
+                        @Override
+                        public ItemStack getButtonItem(Player player) {
+                            ItemStack skull = new ItemStack(Material.SKULL_ITEM, 1, (short) 3);
+                            ItemMeta meta = skull.getItemMeta();
+                            meta.setDisplayName(ChatColor.GREEN + alivePlayer.getName());
+                            
+                            List<String> lore = new ArrayList<>();
+                            lore.add(ChatColor.GRAY + "Click to teleport to " + alivePlayer.getName());
+                            UHCPlayer uhcPlayer = game.getUHCPlayer(alivePlayer.getUniqueId());
+                            if (uhcPlayer != null) {
+                                lore.add(ChatColor.YELLOW + "Kills: " + uhcPlayer.getKills());
+                            }
+                            meta.setLore(lore);
+                            
+                            skull.setItemMeta(meta);
+                            return skull;
+                        }
+
+                        @Override
+                        public void clicked(Player player, int slot, ClickType clickType, int hotbarButton) {
+                            if (alivePlayer.isOnline()) {
+                                teleportSpectatorToPlayer(spectator, alivePlayer);
+                                player.closeInventory();
+                            } else {
+                                player.sendMessage(ChatColor.RED + alivePlayer.getName() + " is no longer online!");
+                                openTeleportationMenu(spectator); // Refresh menu
+                            }
+                        }
+                    });
+                    slot++;
+                }
+                
+                return buttons;
+            }
+        };
+
+        menu.openMenu(spectator);
     }
 }

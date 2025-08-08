@@ -20,12 +20,6 @@ import org.bukkit.event.entity.FoodLevelChangeEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.*;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
-import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
-
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Handles all spectator-related events to prevent spectators from interfering with the game
@@ -72,8 +66,10 @@ public class SpectatorListener implements Listener {
             // Handle spectator compass usage for teleportation
             if (event.getItem() != null && event.getItem().getType() == Material.COMPASS) {
                 if (event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK) {
-                    // Open teleportation menu
-                    openTeleportationMenu(player);
+                    // Open teleportation menu using commons menu system
+                    if (game.getSpectatorManager() != null) {
+                        game.getSpectatorManager().openTeleportationMenu(player);
+                    }
                     event.setCancelled(true);
                 } else if (event.getAction() == Action.LEFT_CLICK_AIR || event.getAction() == Action.LEFT_CLICK_BLOCK) {
                     // Teleport to random player
@@ -148,23 +144,6 @@ public class SpectatorListener implements Listener {
         if (event.getWhoClicked() instanceof Player) {
             Player player = (Player) event.getWhoClicked();
             if (isSpectator(player)) {
-                // Handle teleportation menu clicks
-                if (event.getView().getTitle().equals(ChatColor.GOLD + "Teleport to Player")) {
-                    event.setCancelled(true);
-                    
-                    ItemStack clickedItem = event.getCurrentItem();
-                    if (clickedItem != null && clickedItem.getType() == Material.SKULL_ITEM && clickedItem.hasItemMeta()) {
-                        String targetName = ChatColor.stripColor(clickedItem.getItemMeta().getDisplayName());
-                        Player target = Bukkit.getPlayer(targetName);
-                        
-                        if (target != null && game.getSpectatorManager() != null) {
-                            game.getSpectatorManager().teleportSpectatorToPlayer(player, target);
-                            player.closeInventory();
-                        }
-                    }
-                    return;
-                }
-                
                 // Allow viewing but not moving items in own inventory
                 if (event.getClickedInventory() != null && event.getClickedInventory().equals(player.getInventory())) {
                     event.setCancelled(true);
@@ -274,8 +253,12 @@ public class SpectatorListener implements Listener {
         
         UHCPlayer uhcPlayer = game.getUHCPlayer(player.getUniqueId());
         if (uhcPlayer != null && uhcPlayer.isSpectator()) {
-            // Re-apply spectator settings
-            uhcPlayer.manageSpectator(player);
+            // Re-apply spectator settings using SpectatorManager
+            if (game.getSpectatorManager() != null) {
+                game.getSpectatorManager().handlePlayerJoin(player);
+            } else {
+                uhcPlayer.manageSpectator(player);
+            }
         }
     }
 
@@ -292,8 +275,10 @@ public class SpectatorListener implements Listener {
         
         UHCPlayer uhcPlayer = game.getUHCPlayer(player.getUniqueId());
         if (uhcPlayer != null && uhcPlayer.isSpectator()) {
-            // Cleanup spectator data if needed
-            // EntityHider cleanup will be handled by the SpectatorManager
+            // Cleanup spectator data using SpectatorManager
+            if (game.getSpectatorManager() != null) {
+                game.getSpectatorManager().handlePlayerQuit(player);
+            }
         }
     }
 
