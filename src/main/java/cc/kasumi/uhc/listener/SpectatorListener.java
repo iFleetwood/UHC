@@ -279,6 +279,7 @@ public class SpectatorListener implements Listener {
             if (game.getSpectatorManager() != null) {
                 game.getSpectatorManager().handlePlayerQuit(player);
             }
+            // Note: player.hidePlayer() cleanup is automatic on quit
         }
     }
 

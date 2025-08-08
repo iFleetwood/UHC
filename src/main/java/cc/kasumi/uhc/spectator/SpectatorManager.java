@@ -1,6 +1,5 @@
 package cc.kasumi.uhc.spectator;
 
-import cc.kasumi.commons.entityhider.EntityHider;
 import cc.kasumi.commons.menu.Button;
 import cc.kasumi.commons.menu.Menu;
 import cc.kasumi.uhc.UHC;
@@ -30,13 +29,11 @@ public class SpectatorManager {
 
     private final UHC plugin;
     private final Game game;
-    private final EntityHider entityHider;
     private final SpectatorConfiguration config;
 
     public SpectatorManager(UHC plugin, Game game) {
         this.plugin = plugin;
         this.game = game;
-        this.entityHider = new EntityHider(plugin, EntityHider.Policy.BLACKLIST);
         this.config = new SpectatorConfiguration();
     }
 
@@ -146,12 +143,12 @@ public class SpectatorManager {
         player.setAllowFlight(false);
         player.setFlying(false);
 
-        // Show player to all other players (remove from EntityHider)
+        // Show player to all other players
         showPlayerToAllPlayers(player);
     }
 
     /**
-     * Hide spectator from alive players using EntityHider
+     * Hide spectator from alive players using player.hidePlayer()
      */
     private void hideSpectatorFromAlivePlayers(Player spectator) {
         for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
@@ -160,21 +157,21 @@ public class SpectatorManager {
             UHCPlayer uhcPlayer = game.getUHCPlayer(onlinePlayer.getUniqueId());
             if (uhcPlayer != null && uhcPlayer.getState() == PlayerState.ALIVE) {
                 // Hide spectator from alive player
-                entityHider.hideEntity(onlinePlayer, spectator);
+                onlinePlayer.hidePlayer(spectator);
             } else if (uhcPlayer != null && uhcPlayer.isSpectator() && config.isSpectatorsCanSeeEachOther()) {
                 // Show spectator to other spectators if configured
-                entityHider.showEntity(onlinePlayer, spectator);
+                onlinePlayer.showPlayer(spectator);
             }
         }
     }
 
     /**
-     * Show player to all other players (remove from EntityHider)
+     * Show player to all other players using player.showPlayer()
      */
     private void showPlayerToAllPlayers(Player player) {
         for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
             if (!onlinePlayer.equals(player)) {
-                entityHider.showEntity(onlinePlayer, player);
+                onlinePlayer.showPlayer(player);
             }
         }
     }
@@ -286,7 +283,7 @@ public class SpectatorManager {
      * Handle player quit for spectators
      */
     public void handlePlayerQuit(Player player) {
-        // EntityHider will automatically handle cleanup
+        // player.hidePlayer() cleanup is handled automatically by Bukkit on quit
         // Additional cleanup if needed can be added here
     }
 
