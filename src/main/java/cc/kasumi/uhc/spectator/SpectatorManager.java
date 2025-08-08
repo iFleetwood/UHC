@@ -332,57 +332,63 @@ public class SpectatorManager {
             return;
         }
 
-        Menu menu = new Menu() {
-            @Override
-            public String getTitle(Player player) {
-                return ChatColor.GOLD + "Teleport to Player";
-            }
-
-            @Override
-            public Map<Integer, Button> getButtons(Player player) {
-                Map<Integer, Button> buttons = new HashMap<>();
-                
-                int slot = 0;
-                for (Player alivePlayer : alivePlayers) {
-                    if (slot >= 54) break; // Max inventory size
-                    
-                    buttons.put(slot, new Button() {
-                        @Override
-                        public ItemStack getButtonItem(Player player) {
-                            ItemStack skull = new ItemStack(Material.SKULL_ITEM, 1, (short) 3);
-                            ItemMeta meta = skull.getItemMeta();
-                            meta.setDisplayName(ChatColor.GREEN + alivePlayer.getName());
-                            
-                            List<String> lore = new ArrayList<>();
-                            lore.add(ChatColor.GRAY + "Click to teleport to " + alivePlayer.getName());
-                            UHCPlayer uhcPlayer = game.getUHCPlayer(alivePlayer.getUniqueId());
-                            if (uhcPlayer != null) {
-                                lore.add(ChatColor.YELLOW + "Kills: " + uhcPlayer.getKills());
-                            }
-                            meta.setLore(lore);
-                            
-                            skull.setItemMeta(meta);
-                            return skull;
-                        }
-
-                        @Override
-                        public void clicked(Player player, int slot, ClickType clickType, int hotbarButton) {
-                            if (alivePlayer.isOnline()) {
-                                teleportSpectatorToPlayer(spectator, alivePlayer);
-                                player.closeInventory();
-                            } else {
-                                player.sendMessage(ChatColor.RED + alivePlayer.getName() + " is no longer online!");
-                                openTeleportationMenu(spectator); // Refresh menu
-                            }
-                        }
-                    });
-                    slot++;
+        try {
+            Menu menu = new Menu() {
+                @Override
+                public String getTitle(Player player) {
+                    return ChatColor.GOLD + "Teleport to Player";
                 }
-                
-                return buttons;
-            }
-        };
 
-        menu.openMenu(spectator);
+                @Override
+                public Map<Integer, Button> getButtons(Player player) {
+                    Map<Integer, Button> buttons = new HashMap<>();
+                    
+                    int slot = 0;
+                    for (Player alivePlayer : alivePlayers) {
+                        if (slot >= 54) break; // Max inventory size
+                        
+                        buttons.put(slot, new Button() {
+                            @Override
+                            public ItemStack getButtonItem(Player player) {
+                                ItemStack skull = new ItemStack(Material.SKULL_ITEM, 1, (short) 3);
+                                ItemMeta meta = skull.getItemMeta();
+                                meta.setDisplayName(ChatColor.GREEN + alivePlayer.getName());
+                                
+                                List<String> lore = new ArrayList<>();
+                                lore.add(ChatColor.GRAY + "Click to teleport to " + alivePlayer.getName());
+                                UHCPlayer uhcPlayer = game.getUHCPlayer(alivePlayer.getUniqueId());
+                                if (uhcPlayer != null) {
+                                    lore.add(ChatColor.YELLOW + "Kills: " + uhcPlayer.getKills());
+                                }
+                                meta.setLore(lore);
+                                
+                                skull.setItemMeta(meta);
+                                return skull;
+                            }
+
+                            @Override
+                            public void clicked(Player player, int slot, ClickType clickType, int hotbarButton) {
+                                if (alivePlayer.isOnline()) {
+                                    teleportSpectatorToPlayer(spectator, alivePlayer);
+                                    player.closeInventory();
+                                } else {
+                                    player.sendMessage(ChatColor.RED + alivePlayer.getName() + " is no longer online!");
+                                    openTeleportationMenu(spectator); // Refresh menu
+                                }
+                            }
+                        });
+                        slot++;
+                    }
+                    
+                    return buttons;
+                }
+            };
+
+            menu.openMenu(spectator);
+        } catch (Exception e) {
+            // Fallback if commons menu system is not available or has different interface
+            spectator.sendMessage(ChatColor.RED + "Teleportation menu is not available. Use /spec tp <player> instead.");
+            plugin.getLogger().warning("Could not open teleportation menu: " + e.getMessage());
+        }
     }
 }
