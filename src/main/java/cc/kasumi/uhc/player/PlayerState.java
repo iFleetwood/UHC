@@ -5,6 +5,5 @@ public enum PlayerState {
     LOBBY,
     ALIVE,
     SPECTATING,
-    SPECTATOR,
     COMBAT_LOG
 }

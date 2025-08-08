@@ -47,7 +47,7 @@ public class UHCPlayer {
     public void setPlayerStateAndManage(PlayerState state) {
         this.state = state;
 
-        if (state == PlayerState.SPECTATING || state == PlayerState.SPECTATOR) {
+        if (state == PlayerState.SPECTATING) {
             manageSpectator(getPlayer());
         } else if (state == PlayerState.ALIVE) {
             manageAlivePlayer(getPlayer());
@@ -109,10 +109,10 @@ public class UHCPlayer {
     }
     
     /**
-     * Check if player is in any spectator state
+     * Check if player is in spectator state
      */
     public boolean isSpectator() {
-        return state == PlayerState.SPECTATING || state == PlayerState.SPECTATOR;
+        return state == PlayerState.SPECTATING;
     }
 
     public void addKill() {

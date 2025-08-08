@@ -16,6 +16,7 @@ import cc.kasumi.uhc.packets.NameTagManager;
 import cc.kasumi.uhc.player.PlayerState;
 import cc.kasumi.uhc.player.UHCPlayer;
 import cc.kasumi.uhc.scenario.ScenarioManager;
+import cc.kasumi.uhc.spectator.SpectatorManager;
 import cc.kasumi.uhc.team.TeamManager;
 import cc.kasumi.uhc.team.UHCTeam;
 import cc.kasumi.uhc.util.GameUtil;
@@ -42,6 +43,7 @@ public class Game {
     private final CombatLogVillagerManager combatLogVillagerManager = new CombatLogVillagerManager(this);
     private final ScenarioManager scenarioManager = new ScenarioManager(this);
     private final TeamManager teamManager = new TeamManager(this);
+    private final SpectatorManager spectatorManager = new SpectatorManager(UHC.getInstance(), this);
     private NameTagManager nameTagManager = new NameTagManager(this);
     private BarAPI barAPI;
 

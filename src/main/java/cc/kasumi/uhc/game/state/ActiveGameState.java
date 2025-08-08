@@ -125,7 +125,12 @@ public class ActiveGameState extends GameState {
                 return;
             }
 
-            uhcPlayer.setPlayerStateAndManage(PlayerState.SPECTATING);
+            // Make player a spectator on death
+            if (game.getSpectatorManager() != null) {
+                game.getSpectatorManager().makeSpectator(player, true);
+            } else {
+                uhcPlayer.setPlayerStateAndManage(PlayerState.SPECTATING);
+            }
 
             // Handle team elimination
             if (game.getTeamManager() != null) {

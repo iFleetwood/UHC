@@ -4,6 +4,7 @@ import cc.kasumi.uhc.command.*;
 import cc.kasumi.uhc.game.Game;
 import cc.kasumi.uhc.listener.AsyncPlayerPreLoginListener;
 import cc.kasumi.uhc.listener.PlayerListener;
+import cc.kasumi.uhc.listener.SpectatorListener;
 import cc.kasumi.uhc.util.GameUtil;
 import cc.kasumi.uhc.util.TickCounter;
 import cc.kasumi.uhc.world.WorldManager;
@@ -214,7 +215,8 @@ public final class UHC extends JavaPlugin {
                 public void run() {
                     if (game != null) {
                         pluginManager.registerEvents(new PlayerListener(game), UHC.this);
-                        getLogger().info("PlayerListener registered");
+                        pluginManager.registerEvents(new SpectatorListener(game), UHC.this);
+                        getLogger().info("PlayerListener and SpectatorListener registered");
                         cancel();
                     }
                 }
@@ -250,6 +252,7 @@ public final class UHC extends JavaPlugin {
             paperCommandManager.registerCommand(new WorldConfigCommand());
             paperCommandManager.registerCommand(new TeamCommand()); // NEW: Register team command
             paperCommandManager.registerCommand(new TeamSizeCommand()); // NEW: Register team mode command
+            paperCommandManager.registerCommand(new SpectatorCommand()); // NEW: Register spectator command
             getLogger().info("Commands registered successfully");
         } catch (Exception e) {
             getLogger().severe("Error registering commands: " + e.getMessage());
