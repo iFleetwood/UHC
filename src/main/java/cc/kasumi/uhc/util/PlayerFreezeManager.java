@@ -1,6 +1,9 @@
 package cc.kasumi.uhc.util;
 
 import cc.kasumi.uhc.UHC;
+import com.comphenix.protocol.PacketType;
+import com.comphenix.protocol.ProtocolManager;
+import com.comphenix.protocol.events.PacketContainer;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.entity.ArmorStand;
@@ -12,28 +15,27 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.event.player.PlayerTeleportEvent;
-import org.bukkit.event.vehicle.VehicleExitEvent;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
-import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.util.Vector;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Manages freezing players during scatter using invisible armor stands
- * Compatible with Spigot 1.8.8
- */
 public class PlayerFreezeManager implements Listener {
+
+    private static ProtocolManager protocolManager;
     
     private final Map<UUID, ArmorStand> frozenPlayers = new HashMap<>();
     private final Map<UUID, Location> originalLocations = new HashMap<>();
     private boolean freezeActive = false;
     
     public PlayerFreezeManager() {
+        protocolManager = UHC.getProtocolManager();
+
         UHC.getInstance().getServer().getPluginManager().registerEvents(this, UHC.getInstance());
+        // registerFlyingPacketListener();
     }
     
     /**
@@ -46,35 +48,28 @@ public class PlayerFreezeManager implements Listener {
         
         Location loc = player.getLocation();
         originalLocations.put(player.getUniqueId(), loc.clone());
-        
-        // Ensure player is not flying before freezing
-        player.setAllowFlight(false);
-        player.setFlying(false);
-        
-        // Create invisible armor stand
-        ArmorStand stand = (ArmorStand) player.getWorld().spawnEntity(
-            loc.clone().add(0, -1.0, 0), // Spawn slightly below to align properly
-            EntityType.ARMOR_STAND
+
+        ArmorStand armorStand = (ArmorStand) player.getWorld().spawnEntity(
+                loc.clone().add(0, 0.0, 0), // Spawn slightly below to align properly
+                EntityType.ARMOR_STAND
         );
-        
-        // Configure armor stand
-        stand.setVisible(false);
-        stand.setGravity(false);
-        stand.setCanPickupItems(false);
-        stand.setCustomNameVisible(false);
-        stand.setSmall(true);
-        stand.setMarker(true); // Makes it have no hitbox in 1.8.8
-        
-        // Set as passenger
-        stand.setPassenger(player);
-        
+
+        armorStand.setVisible(false);
+        armorStand.setGravity(false);
+        armorStand.setCanPickupItems(false);
+        armorStand.setCustomNameVisible(false);
+        armorStand.setSmall(true);
+        armorStand.setMarker(true); // Makes it have no hitbox in 1.8.8
+
+        armorStand.setPassenger(player);
+
         // Apply effects to ensure they can't move
         player.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, Integer.MAX_VALUE, 255, false, false));
         // Use a lower jump reduction to avoid issues
         player.addPotionEffect(new PotionEffect(PotionEffectType.JUMP, Integer.MAX_VALUE, 200, false, false));
         
         // Store reference
-        frozenPlayers.put(player.getUniqueId(), stand);
+        frozenPlayers.put(player.getUniqueId(), armorStand);
         
         // Send freeze message
         player.sendMessage("§e§lYou are frozen during scatter! Please wait...");
@@ -88,62 +83,39 @@ public class PlayerFreezeManager implements Listener {
     public void unfreezePlayer(Player player) {
         ArmorStand stand = frozenPlayers.remove(player.getUniqueId());
         if (stand != null) {
-            // Eject player first
+            // Eject player
             stand.eject();
-            
+
             // Remove armor stand
             stand.remove();
-            
-            // Clear ALL potion effects to ensure clean state
-            for (PotionEffect effect : player.getActivePotionEffects()) {
-                player.removePotionEffect(effect.getType());
-            }
-            
-            // Get the player's current location
-            Location currentLoc = player.getLocation();
-            
-            // Find a safe ground location
-            Location safeLocation = findSafeGroundLocation(currentLoc);
-            
-            // Teleport player to safe location
-            player.teleport(safeLocation);
-            
-            // Ensure player state is reset properly
-            player.setGameMode(GameMode.SURVIVAL);
-            player.setAllowFlight(false);
-            player.setFlying(false);
-            player.setVelocity(player.getVelocity().zero());
-            player.setFallDistance(0);
-            
-            // Give brief invulnerability to prevent fall damage
-            player.setNoDamageTicks(20); // 1 second of invulnerability
-            
-            // Schedule a delayed check to ensure player is grounded
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    if (player.isOnline()) {
-                        // Double-check flight is disabled
-                        player.setAllowFlight(false);
-                        player.setFlying(false);
-                        
-                        // If player is still in air, teleport to ground again
-                        if (!player.isOnGround() && player.getFallDistance() > 2) {
-                            Location groundLoc = findSafeGroundLocation(player.getLocation());
-                            player.teleport(groundLoc);
-                            player.setVelocity(player.getVelocity().zero());
-                        }
-                    }
-                }
-            }.runTaskLater(UHC.getInstance(), 10L); // Check after 0.5 seconds
-            
-            // Remove from tracking
-            originalLocations.remove(player.getUniqueId());
-            
-            player.sendMessage("§a§lYou have been unfrozen! The game is starting!");
-            
-            UHC.getInstance().getLogger().info("Unfroze player " + player.getName() + " at " + formatLocation(safeLocation));
         }
+
+        // Clear ALL potion effects to ensure clean state
+        for (PotionEffect effect : player.getActivePotionEffects()) {
+            player.removePotionEffect(effect.getType());
+        }
+
+        // Get the player's current location
+        Location currentLoc = player.getLocation();
+
+        // Ensure player state is reset properly
+        player.setGameMode(GameMode.SURVIVAL);
+        player.setAllowFlight(false);
+        player.setFlying(false);
+        player.setFlySpeed(0.1F);
+        player.setVelocity(new Vector(0, 0, 0));
+        player.setFallDistance(0f);
+
+        // Give brief invulnerability to prevent fall damage
+        player.setNoDamageTicks(20); // 1 second of invulnerability
+
+        // Remove from tracking
+        frozenPlayers.remove(player.getUniqueId());
+        originalLocations.remove(player.getUniqueId());
+
+        player.sendMessage("§a§lYou have been unfrozen! The game is starting!");
+
+        UHC.getInstance().getLogger().info("Unfroze player " + player.getName() + " at " + formatLocation(currentLoc));
     }
     
     /**
@@ -166,38 +138,8 @@ public class PlayerFreezeManager implements Listener {
         }
         
         // Clean up any remaining armor stands
-        frozenPlayers.values().forEach(ArmorStand::remove);
         frozenPlayers.clear();
         originalLocations.clear();
-        
-        // Schedule periodic safety checks for the next few seconds
-        new BukkitRunnable() {
-            int checks = 0;
-            
-            @Override
-            public void run() {
-                if (checks++ >= 10) { // Check for 5 seconds (10 checks at 0.5s intervals)
-                    cancel();
-                    return;
-                }
-                
-                for (Player player : UHC.getInstance().getServer().getOnlinePlayers()) {
-                    if (player.getGameMode() == GameMode.SURVIVAL) {
-                        // Ensure flight is disabled
-                        if (player.getAllowFlight() || player.isFlying()) {
-                            player.setAllowFlight(false);
-                            player.setFlying(false);
-                        }
-                        
-                        // Check if player seems to be floating
-                        if (!player.isOnGround() && player.getFallDistance() == 0 && player.getVelocity().getY() > 0.1) {
-                            // Force downward velocity to ground them
-                            player.setVelocity(player.getVelocity().setY(-0.2));
-                        }
-                    }
-                }
-            }
-        }.runTaskTimer(UHC.getInstance(), 10L, 10L); // Start after 0.5s, repeat every 0.5s
     }
     
     /**
@@ -213,6 +155,12 @@ public class PlayerFreezeManager implements Listener {
     public int getFrozenCount() {
         return frozenPlayers.size();
     }
+
+    private void sendDestroyPacket(Player to, int entityId) {
+        PacketContainer destroy = protocolManager.createPacket(PacketType.Play.Server.ENTITY_DESTROY);
+        destroy.getIntegerArrays().write(0, new int[]{entityId});
+        protocolManager.sendServerPacket(to, destroy);
+    }
     
     // Event handlers to prevent movement and damage
     
@@ -224,53 +172,6 @@ public class PlayerFreezeManager implements Listener {
                 event.getFrom().getY() != event.getTo().getY() ||
                 event.getFrom().getZ() != event.getTo().getZ()) {
                 event.setCancelled(true);
-            }
-        }
-    }
-    
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onVehicleExit(VehicleExitEvent event) {
-        if (event.getExited() instanceof Player) {
-            Player player = (Player) event.getExited();
-            if (freezeActive && isFrozen(player)) {
-                event.setCancelled(true);
-                
-                // Re-mount them just in case
-                ArmorStand stand = frozenPlayers.get(player.getUniqueId());
-                if (stand != null && !stand.isDead()) {
-                    new BukkitRunnable() {
-                        @Override
-                        public void run() {
-                            if (stand.getPassenger() == null) {
-                                stand.setPassenger(player);
-                            }
-                        }
-                    }.runTaskLater(UHC.getInstance(), 1L);
-                }
-            }
-        }
-    }
-    
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onPlayerTeleport(PlayerTeleportEvent event) {
-        if (freezeActive && isFrozen(event.getPlayer())) {
-            // Allow teleport but update the armor stand location
-            Player player = event.getPlayer();
-            ArmorStand stand = frozenPlayers.get(player.getUniqueId());
-            
-            if (stand != null) {
-                Location newLoc = event.getTo();
-                
-                // Schedule armor stand update
-                new BukkitRunnable() {
-                    @Override
-                    public void run() {
-                        stand.eject();
-                        stand.teleport(newLoc.clone().add(0, -1.0, 0));
-                        stand.setPassenger(player);
-                        originalLocations.put(player.getUniqueId(), newLoc.clone());
-                    }
-                }.runTaskLater(UHC.getInstance(), 1L);
             }
         }
     }
@@ -292,6 +193,22 @@ public class PlayerFreezeManager implements Listener {
             unfreezePlayer(player);
         }
     }
+
+    /*
+    private void registerFlyingPacketListener() {
+        protocolManager.addPacketListener(new PacketAdapter(UHC.getInstance(), ListenerPriority.HIGHEST, PacketType.Play.Client.FLYING, PacketType.Play.Client.POSITION, PacketType.Play.Client.POSITION_LOOK) {
+            @Override
+            public void onPacketReceiving(PacketEvent event) {
+                Player player = event.getPlayer();
+                if (frozenPlayers.containsKey(player.getUniqueId())) {
+                    event.getPacket().getBooleans().write(0, true); // Force onGround = true
+                    Bukkit.broadcastMessage(player.getName() + "yes");
+                }
+            }
+        });
+    }
+
+     */
     
     /**
      * Clean up all armor stands on disable

@@ -433,7 +433,6 @@ public class BarAPI implements Listener {
   @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
   public void onPlayerQuit(PlayerQuitEvent event) {
     quit(event.getPlayer());
-    Bukkit.broadcastMessage("is fired");
   }
 
   @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

@@ -52,8 +52,8 @@ public final class UHC extends JavaPlugin {
         initializeGame();
 
         // Register other components
-        registerListeners();
         registerManagers();
+        registerListeners();
         registerCommands();
 
         getLogger().info("UHC Plugin initialization completed!");
