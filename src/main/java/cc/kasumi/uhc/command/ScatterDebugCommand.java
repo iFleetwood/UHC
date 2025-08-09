@@ -13,6 +13,7 @@ import org.bukkit.World;
 import org.bukkit.WorldBorder;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.bukkit.Chunk;
 
 import java.util.List;
 import java.util.Random;
@@ -291,6 +292,101 @@ public class ScatterDebugCommand extends BaseCommand {
         sender.sendMessage(ChatColor.GREEN + "Improved scatter system started!");
     }
 
+    @Subcommand("chunks")
+    @CommandPermission("uhc.admin")
+    @Description("Check chunk loading around a location")
+    public void onChunks(CommandSender sender, String x, String z) {
+        try {
+            Game game = UHC.getInstance().getGame();
+            if (game == null || game.getWorld() == null) {
+                sender.sendMessage(ChatColor.RED + "Game or world not available!");
+                return;
+            }
+            
+            World world = game.getWorld();
+            if (world == null) {
+                sender.sendMessage(ChatColor.RED + "UHC world is not loaded!");
+                return;
+            }
+            
+            int blockX = Integer.parseInt(x);
+            int blockZ = Integer.parseInt(z);
+            int chunkX = blockX >> 4;
+            int chunkZ = blockZ >> 4;
+            
+            sender.sendMessage(ChatColor.YELLOW + "=== Chunk Status at " + x + ", " + z + " ===");
+            sender.sendMessage(ChatColor.GRAY + "Chunk coordinates: " + chunkX + ", " + chunkZ);
+            
+            int radius = 2;
+            int loadedCount = 0;
+            int totalCount = 0;
+            
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    Chunk chunk = world.getChunkAt(chunkX + dx, chunkZ + dz);
+                    totalCount++;
+                    
+                    if (chunk.isLoaded()) {
+                        loadedCount++;
+                        sender.sendMessage(ChatColor.GREEN + "  ✓ Chunk " + (chunkX + dx) + ", " + (chunkZ + dz) + " - LOADED");
+                    } else {
+                        sender.sendMessage(ChatColor.RED + "  ✗ Chunk " + (chunkX + dx) + ", " + (chunkZ + dz) + " - NOT LOADED");
+                    }
+                }
+            }
+            
+            sender.sendMessage(ChatColor.YELLOW + "Summary: " + loadedCount + "/" + totalCount + " chunks loaded");
+            
+        } catch (NumberFormatException e) {
+            sender.sendMessage(ChatColor.RED + "Invalid coordinates! Usage: /scatter chunks <x> <z>");
+        }
+    }
+    
+    @Subcommand("loadchunks")
+    @CommandPermission("uhc.admin")
+    @Description("Force load chunks around a location")
+    public void onLoadChunks(CommandSender sender, String x, String z) {
+        try {
+            Game game = UHC.getInstance().getGame();
+            if (game == null || game.getWorld() == null) {
+                sender.sendMessage(ChatColor.RED + "Game or world not available!");
+                return;
+            }
+            
+            World world = game.getWorld();
+            if (world == null) {
+                sender.sendMessage(ChatColor.RED + "UHC world is not loaded!");
+                return;
+            }
+            
+            int blockX = Integer.parseInt(x);
+            int blockZ = Integer.parseInt(z);
+            int chunkX = blockX >> 4;
+            int chunkZ = blockZ >> 4;
+            
+            sender.sendMessage(ChatColor.YELLOW + "Force loading chunks around " + x + ", " + z + "...");
+            
+            int radius = 2;
+            int loadedCount = 0;
+            
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    Chunk chunk = world.getChunkAt(chunkX + dx, chunkZ + dz);
+                    
+                    if (!chunk.isLoaded()) {
+                        chunk.load(true);
+                        loadedCount++;
+                    }
+                }
+            }
+            
+            sender.sendMessage(ChatColor.GREEN + "Force loaded " + loadedCount + " chunks!");
+            
+        } catch (NumberFormatException e) {
+            sender.sendMessage(ChatColor.RED + "Invalid coordinates! Usage: /scatter loadchunks <x> <z>");
+        }
+    }
+
     private void analyzeLocationSafety(Player player, Location loc) {
         World world = loc.getWorld();
         int x = loc.getBlockX();
@@ -375,5 +471,7 @@ public class ScatterDebugCommand extends BaseCommand {
         sender.sendMessage(ChatColor.YELLOW + "/sdebug world info" + ChatColor.GRAY + " - Show world scatter information");
         sender.sendMessage(ChatColor.YELLOW + "/sdebug simulate" + ChatColor.GRAY + " - Simulate scatter without executing");
         sender.sendMessage(ChatColor.YELLOW + "/sdebug force scatter" + ChatColor.GRAY + " - Force start improved scatter");
+        sender.sendMessage(ChatColor.YELLOW + "/sdebug chunks <x> <z>" + ChatColor.GRAY + " - Check chunk loading around a location");
+        sender.sendMessage(ChatColor.YELLOW + "/sdebug loadchunks <x> <z>" + ChatColor.GRAY + " - Force load chunks around a location");
     }
 }
