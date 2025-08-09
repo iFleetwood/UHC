@@ -633,12 +633,16 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         if (members.size() == 1) {
             // Solo team
             Player player = members.get(0);
+            
+            // Add metadata to indicate this is a scatter teleport
+            player.setMetadata("uhc_scatter_teleport", new org.bukkit.metadata.FixedMetadataValue(UHC.getInstance(), true));
             player.teleport(teamCenter);
             
-            // Freeze player after teleport
+            // Freeze player after teleport and remove metadata
             new BukkitRunnable() {
                 @Override
                 public void run() {
+                    player.removeMetadata("uhc_scatter_teleport", UHC.getInstance());
                     freezeManager.freezePlayer(player);
                     player.sendMessage(ChatColor.GREEN + "You have been scattered!");
                     player.sendMessage(ChatColor.YELLOW + "You are now frozen until all teams are scattered.");
@@ -651,12 +655,16 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             for (int i = 0; i < members.size(); i++) {
                 Player player = members.get(i);
                 Location loc = i < memberLocations.size() ? memberLocations.get(i) : teamCenter;
+                
+                // Add metadata to indicate this is a scatter teleport
+                player.setMetadata("uhc_scatter_teleport", new org.bukkit.metadata.FixedMetadataValue(UHC.getInstance(), true));
                 player.teleport(loc);
                 
-                // Freeze each player after teleport
+                // Freeze each player after teleport and remove metadata
                 new BukkitRunnable() {
                     @Override
                     public void run() {
+                        player.removeMetadata("uhc_scatter_teleport", UHC.getInstance());
                         freezeManager.freezePlayer(player);
                         player.sendMessage(ChatColor.GREEN + "You have been scattered with your team!");
                         player.sendMessage(ChatColor.YELLOW + "You are now frozen until all teams are scattered.");

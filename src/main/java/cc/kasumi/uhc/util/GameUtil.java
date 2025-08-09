@@ -752,7 +752,7 @@ public class GameUtil {
     }
 
     /**
-     * Teleport a player safely to avoid suffocation
+     * Teleport a player safely to avoid suffocation with chunk loading
      */
     public static void safeTeleport(Player player, Location location) {
         if (player == null || location == null) {
@@ -762,6 +762,12 @@ public class GameUtil {
         World world = location.getWorld();
         int x = location.getBlockX();
         int z = location.getBlockZ();
+
+        // Ensure destination chunk is loaded
+        Chunk chunk = world.getChunkAt(x >> 4, z >> 4);
+        if (!chunk.isLoaded()) {
+            chunk.load(true);
+        }
 
         // Calculate safe Y coordinate
         int groundY = world.getHighestBlockYAt(x, z);
