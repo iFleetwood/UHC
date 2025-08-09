@@ -78,6 +78,7 @@ public class PlayerListener implements Listener {
     /**
      * Handle teleportation events to ensure chunks are loaded at destination
      * This fixes the issue where players fall through the world when teleporting to scattered players
+     * Modified for 1.8.8 compatibility - uses synchronous chunk loading
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerTeleport(PlayerTeleportEvent event) {
@@ -110,12 +111,12 @@ public class PlayerListener implements Listener {
         UHC.getInstance().getLogger().info("Pre-loading chunks for teleport: " + 
             player.getName() + " to " + formatLocation(destination));
 
-        // Load chunks around destination in a separate task
+        // Schedule chunk loading on next tick to avoid cancelling the event in the same tick
         new BukkitRunnable() {
             @Override
             public void run() {
                 try {
-                    // Load chunks in radius around destination
+                    // Load chunks in radius around destination (synchronous for 1.8.8)
                     Chunk centerChunk = destination.getChunk();
                     int chunksLoaded = 0;
                     
@@ -127,7 +128,7 @@ public class PlayerListener implements Listener {
                             );
                             
                             if (!chunk.isLoaded()) {
-                                chunk.load(true);
+                                chunk.load(true); // Synchronous loading in 1.8.8
                                 chunksLoaded++;
                             }
                         }
@@ -135,38 +136,27 @@ public class PlayerListener implements Listener {
                     
                     UHC.getInstance().getLogger().info("Loaded " + chunksLoaded + " chunks around teleport destination");
                     
-                    // Schedule the actual teleport on the main thread
-                    new BukkitRunnable() {
-                        @Override
-                        public void run() {
-                            // Ensure player is still online and hasn't moved significantly
-                            if (player.isOnline() && player.getLocation().distance(originalLocation) < 10) {
-                                // Perform the teleport safely
-                                player.teleport(destination);
-                                UHC.getInstance().getLogger().info("Successfully teleported " + 
-                                    player.getName() + " to " + formatLocation(destination));
-                            } else {
-                                UHC.getInstance().getLogger().warning("Teleport cancelled - player moved or went offline");
-                            }
-                        }
-                    }.runTask(UHC.getInstance());
+                    // Ensure player is still online and hasn't moved significantly
+                    if (player.isOnline() && player.getLocation().distance(originalLocation) < 10) {
+                        // Perform the teleport safely
+                        player.teleport(destination);
+                        UHC.getInstance().getLogger().info("Successfully teleported " + 
+                            player.getName() + " to " + formatLocation(destination));
+                    } else {
+                        UHC.getInstance().getLogger().warning("Teleport cancelled - player moved or went offline");
+                    }
                     
                 } catch (Exception e) {
                     UHC.getInstance().getLogger().severe("Error during chunk preloading for teleport: " + e.getMessage());
                     e.printStackTrace();
                     
                     // Fallback: try teleport anyway
-                    new BukkitRunnable() {
-                        @Override
-                        public void run() {
-                            if (player.isOnline()) {
-                                player.teleport(destination);
-                            }
-                        }
-                    }.runTask(UHC.getInstance());
+                    if (player.isOnline()) {
+                        player.teleport(destination);
+                    }
                 }
             }
-        }.runTaskAsynchronously(UHC.getInstance());
+        }.runTask(UHC.getInstance()); // Run on main thread for 1.8.8 compatibility
     }
     
     /**
