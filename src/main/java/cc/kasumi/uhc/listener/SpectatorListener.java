@@ -153,35 +153,6 @@ public class SpectatorListener implements Listener {
     }
 
     /**
-     * Restrict certain commands for spectators
-     */
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onPlayerCommandPreprocess(PlayerCommandPreprocessEvent event) {
-        Player player = event.getPlayer();
-        if (isSpectator(player)) {
-            String command = event.getMessage().toLowerCase();
-            
-            // Block certain commands that spectators shouldn't use
-            String[] blockedCommands = {
-                "/give", "/gamemode", "/tp", "/teleport", "/kill", "/suicide"
-            };
-            
-            for (String blocked : blockedCommands) {
-                if (command.startsWith(blocked)) {
-                    event.setCancelled(true);
-                    player.sendMessage("§cYou cannot use this command while spectating!");
-                    return;
-                }
-            }
-            
-            // Allow spectator-specific commands
-            if (command.startsWith("/spec") || command.startsWith("/spectator")) {
-                return; // Allow these commands
-            }
-        }
-    }
-
-    /**
      * Prevent spectators from getting hungry
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
