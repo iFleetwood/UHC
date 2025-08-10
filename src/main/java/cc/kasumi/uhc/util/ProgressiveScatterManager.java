@@ -30,6 +30,9 @@ public class ProgressiveScatterManager extends BukkitRunnable {
     private final Set<ChunkCoordinate> chunksToPreload = ConcurrentHashMap.newKeySet();
     private final Set<ChunkCoordinate> preloadedChunks = ConcurrentHashMap.newKeySet();
     
+    // Static storage for post-scatter chunk management
+    private static final Map<String, Set<ChunkCoordinate>> worldScatterChunks = new ConcurrentHashMap<>();
+    
     // State tracking
     @Getter
     private ScatterPhase currentPhase = ScatterPhase.INITIALIZING;
@@ -852,18 +855,70 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             }
         }
         
-        // Keep chunks loaded for a bit longer
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                for (ChunkCoordinate coord : preloadedChunks) {
-                    Chunk chunk = world.getChunkAt(coord.x, coord.z);
-                    if (chunk.isLoaded()) {
-                        chunk.unload(true);
-                    }
+        // Store scatter chunks for future reference to help with teleportation
+        String worldKey = world.getName();
+        worldScatterChunks.put(worldKey, new HashSet<>(preloadedChunks));
+        
+        UHC.getInstance().getLogger().info("Scatter chunks stored for future teleportation assistance. " +
+                "Server will handle chunk unloading naturally.");
+    }
+    
+    /**
+     * Check if a location is near a known scatter location and preload chunks if needed
+     * This method can be called by other systems when teleporting players
+     */
+    public static boolean isNearScatterLocation(Location location) {
+        if (location == null || location.getWorld() == null) {
+            return false;
+        }
+        
+        String worldKey = location.getWorld().getName();
+        Set<ChunkCoordinate> scatterChunks = worldScatterChunks.get(worldKey);
+        
+        if (scatterChunks == null) {
+            return false;
+        }
+        
+        ChunkCoordinate locationChunk = new ChunkCoordinate(
+            location.getChunk().getX(), 
+            location.getChunk().getZ()
+        );
+        
+        // Check if location is within 2 chunks of any scatter chunk
+        for (ChunkCoordinate scatterChunk : scatterChunks) {
+            if (Math.abs(locationChunk.x - scatterChunk.x) <= 2 && 
+                Math.abs(locationChunk.z - scatterChunk.z) <= 2) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Preload chunks around a scatter location for safe teleportation
+     * This method can be called by other systems when teleporting to scattered players
+     */
+    public static void preloadScatterChunks(Location location) {
+        if (location == null || location.getWorld() == null) {
+            return;
+        }
+        
+        World world = location.getWorld();
+        Chunk centerChunk = location.getChunk();
+        
+        // Load chunks in 5x5 area around location
+        for (int dx = -CHUNK_PRELOAD_RADIUS; dx <= CHUNK_PRELOAD_RADIUS; dx++) {
+            for (int dz = -CHUNK_PRELOAD_RADIUS; dz <= CHUNK_PRELOAD_RADIUS; dz++) {
+                Chunk chunk = world.getChunkAt(centerChunk.getX() + dx, centerChunk.getZ() + dz);
+                if (!chunk.isLoaded()) {
+                    chunk.load(true);
                 }
             }
-        }.runTaskLater(UHC.getInstance(), 200L); // Unload after 10 seconds
+        }
+        
+        UHC.getInstance().getLogger().info("Preloaded scatter chunks around " + 
+            location.getBlockX() + "," + location.getBlockZ());
     }
     
     public double getProgress() {
