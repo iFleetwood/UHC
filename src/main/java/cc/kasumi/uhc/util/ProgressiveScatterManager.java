@@ -855,45 +855,12 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             }
         }
         
-        // Store scatter chunks for future reference instead of unloading immediately
+        // Store scatter chunks for future reference to help with teleportation
         String worldKey = world.getName();
         worldScatterChunks.put(worldKey, new HashSet<>(preloadedChunks));
         
-        // Keep chunks loaded for much longer (5 minutes instead of 10 seconds)
-        // This helps prevent chunk loading issues when players teleport to scattered locations
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                Set<ChunkCoordinate> scatterChunks = worldScatterChunks.get(worldKey);
-                if (scatterChunks != null) {
-                    int unloadedCount = 0;
-                    for (ChunkCoordinate coord : scatterChunks) {
-                        Chunk chunk = world.getChunkAt(coord.x, coord.z);
-                        if (chunk.isLoaded()) {
-                            // Only unload if no players are nearby (within 3 chunks)
-                            boolean playersNearby = false;
-                            for (Player player : world.getPlayers()) {
-                                Chunk playerChunk = player.getLocation().getChunk();
-                                if (Math.abs(playerChunk.getX() - coord.x) <= 3 && 
-                                    Math.abs(playerChunk.getZ() - coord.z) <= 3) {
-                                    playersNearby = true;
-                                    break;
-                                }
-                            }
-                            
-                            if (!playersNearby) {
-                                chunk.unload(true);
-                                unloadedCount++;
-                            }
-                        }
-                    }
-                    UHC.getInstance().getLogger().info("Unloaded " + unloadedCount + " scatter chunks (kept chunks with nearby players loaded)");
-                    
-                    // Clean up after unloading
-                    worldScatterChunks.remove(worldKey);
-                }
-            }
-        }.runTaskLater(UHC.getInstance(), 6000L); // Unload after 5 minutes instead of 10 seconds
+        UHC.getInstance().getLogger().info("Scatter chunks stored for future teleportation assistance. " +
+                "Server will handle chunk unloading naturally.");
     }
     
     /**

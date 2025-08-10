@@ -763,10 +763,23 @@ public class GameUtil {
         int x = location.getBlockX();
         int z = location.getBlockZ();
 
-        // Ensure destination chunk is loaded
-        Chunk chunk = world.getChunkAt(x >> 4, z >> 4);
-        if (!chunk.isLoaded()) {
-            chunk.load(true);
+        // Check if near a scatter location and preload appropriately
+        try {
+            if (ProgressiveScatterManager.isNearScatterLocation(location)) {
+                ProgressiveScatterManager.preloadScatterChunks(location);
+            } else {
+                // Ensure destination chunk is loaded
+                Chunk chunk = world.getChunkAt(x >> 4, z >> 4);
+                if (!chunk.isLoaded()) {
+                    chunk.load(true);
+                }
+            }
+        } catch (Exception e) {
+            // Fallback to basic chunk loading if scatter manager fails
+            Chunk chunk = world.getChunkAt(x >> 4, z >> 4);
+            if (!chunk.isLoaded()) {
+                chunk.load(true);
+            }
         }
 
         // Calculate safe Y coordinate

@@ -4,6 +4,7 @@ import cc.kasumi.uhc.UHC;
 import cc.kasumi.uhc.game.Game;
 import cc.kasumi.uhc.player.PlayerState;
 import cc.kasumi.uhc.player.UHCPlayer;
+import cc.kasumi.uhc.util.ProgressiveScatterManager;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -108,28 +109,39 @@ public class PlayerListener implements Listener {
         Player player = event.getPlayer();
         Location originalLocation = event.getFrom();
         
+        // Check if destination is near a scatter location - if so, use enhanced chunk loading
+        boolean isNearScatter = ProgressiveScatterManager.isNearScatterLocation(destination);
+        
         UHC.getInstance().getLogger().info("Pre-loading chunks for teleport: " + 
-            player.getName() + " to " + formatLocation(destination));
+            player.getName() + " to " + formatLocation(destination) + 
+            (isNearScatter ? " (near scatter location)" : ""));
 
         // Schedule chunk loading on next tick to avoid cancelling the event in the same tick
         new BukkitRunnable() {
             @Override
             public void run() {
                 try {
-                    // Load chunks in radius around destination (synchronous for 1.8.8)
-                    Chunk centerChunk = destination.getChunk();
                     int chunksLoaded = 0;
                     
-                    for (int dx = -CHUNK_LOAD_RADIUS; dx <= CHUNK_LOAD_RADIUS; dx++) {
-                        for (int dz = -CHUNK_LOAD_RADIUS; dz <= CHUNK_LOAD_RADIUS; dz++) {
-                            Chunk chunk = destination.getWorld().getChunkAt(
-                                centerChunk.getX() + dx, 
-                                centerChunk.getZ() + dz
-                            );
-                            
-                            if (!chunk.isLoaded()) {
-                                chunk.load(true); // Synchronous loading in 1.8.8
-                                chunksLoaded++;
+                    if (isNearScatter) {
+                        // Use enhanced scatter chunk preloading for areas near scatter locations
+                        ProgressiveScatterManager.preloadScatterChunks(destination);
+                        chunksLoaded = 25; // 5x5 area from scatter preloading
+                    } else {
+                        // Load chunks in radius around destination (synchronous for 1.8.8)
+                        Chunk centerChunk = destination.getChunk();
+                        
+                        for (int dx = -CHUNK_LOAD_RADIUS; dx <= CHUNK_LOAD_RADIUS; dx++) {
+                            for (int dz = -CHUNK_LOAD_RADIUS; dz <= CHUNK_LOAD_RADIUS; dz++) {
+                                Chunk chunk = destination.getWorld().getChunkAt(
+                                    centerChunk.getX() + dx, 
+                                    centerChunk.getZ() + dz
+                                );
+                                
+                                if (!chunk.isLoaded()) {
+                                    chunk.load(true); // Synchronous loading in 1.8.8
+                                    chunksLoaded++;
+                                }
                             }
                         }
                     }
