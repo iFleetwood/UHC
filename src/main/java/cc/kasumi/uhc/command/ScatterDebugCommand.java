@@ -14,6 +14,8 @@ import org.bukkit.WorldBorder;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.Chunk;
+import org.bukkit.Material;
+import org.bukkit.block.Block;
 
 import java.util.List;
 import java.util.Random;
@@ -387,6 +389,100 @@ public class ScatterDebugCommand extends BaseCommand {
         }
     }
 
+    @Subcommand("test water safety")
+    @Description("Test water safety detection in location safety checks")
+    public void onTestWaterSafety(Player player) {
+        Location loc = player.getLocation();
+        World world = loc.getWorld();
+        
+        player.sendMessage(ChatColor.GOLD + "=== Water Safety Test ===");
+        player.sendMessage(ChatColor.YELLOW + "Testing location: " + formatLocation(loc));
+        
+        // Test current location
+        boolean isSafe = GameUtil.isLocationSafe(loc);
+        player.sendMessage(ChatColor.YELLOW + "Current location safe: " + 
+            (isSafe ? ChatColor.GREEN + "YES" : ChatColor.RED + "NO"));
+        
+        // Test blocks around current location
+        Block groundBlock = world.getBlockAt(loc.getBlockX(), loc.getBlockY() - 1, loc.getBlockZ());
+        Block feetBlock = world.getBlockAt(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
+        Block headBlock = world.getBlockAt(loc.getBlockX(), loc.getBlockY() + 1, loc.getBlockZ());
+        
+        player.sendMessage(ChatColor.YELLOW + "Ground block: " + ChatColor.WHITE + groundBlock.getType());
+        player.sendMessage(ChatColor.YELLOW + "Feet block: " + ChatColor.WHITE + feetBlock.getType());
+        player.sendMessage(ChatColor.YELLOW + "Head block: " + ChatColor.WHITE + headBlock.getType());
+        
+        // Check for water nearby
+        boolean waterNearby = false;
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dy = -2; dy <= 2; dy++) {
+                for (int dz = -2; dz <= 2; dz++) {
+                    Block block = world.getBlockAt(
+                        loc.getBlockX() + dx, 
+                        loc.getBlockY() + dy, 
+                        loc.getBlockZ() + dz
+                    );
+                    if (block.getType() == Material.WATER || block.getType() == Material.STATIONARY_WATER) {
+                        waterNearby = true;
+                        player.sendMessage(ChatColor.BLUE + "Water found at offset (" + dx + "," + dy + "," + dz + ")");
+                    }
+                }
+            }
+        }
+        
+        if (!waterNearby) {
+            player.sendMessage(ChatColor.GREEN + "No water found within 5x5x5 area");
+        }
+        
+        // Test what getHighestBlockYAt would return here
+        int highestY = world.getHighestBlockYAt(loc.getBlockX(), loc.getBlockZ());
+        Block highestBlock = world.getBlockAt(loc.getBlockX(), highestY, loc.getBlockZ());
+        player.sendMessage(ChatColor.YELLOW + "Highest block Y: " + highestY + 
+            " (" + highestBlock.getType() + ")");
+        
+        // Simulate what scatter would do
+        player.sendMessage(ChatColor.GOLD + "--- Scatter Simulation ---");
+        player.sendMessage(ChatColor.GRAY + "Testing what scatter would do at this location...");
+        
+        Location testLoc = new Location(world, loc.getX(), 0, loc.getZ());
+        int testHighestY = world.getHighestBlockYAt(testLoc);
+        int testY = testHighestY;
+        Block testBlock = world.getBlockAt((int)loc.getX(), testY, (int)loc.getZ());
+        
+        player.sendMessage(ChatColor.GRAY + "Initial highest Y: " + testHighestY + " (" + testBlock.getType() + ")");
+        
+        // Simulate the improved safe solid block finding
+        int iterations = 0;
+        while (testY > 0 && iterations < 10) {
+            testBlock = world.getBlockAt((int)loc.getX(), testY, (int)loc.getZ());
+            boolean isSolidBlock = testBlock.getType().isSolid();
+            boolean isWater = testBlock.getType() == Material.WATER || testBlock.getType() == Material.STATIONARY_WATER;
+            boolean isLava = testBlock.getType() == Material.LAVA || testBlock.getType() == Material.STATIONARY_LAVA;
+            
+            player.sendMessage(ChatColor.GRAY + "Y=" + testY + " " + testBlock.getType() + 
+                " solid=" + isSolidBlock + " water=" + isWater + " lava=" + isLava);
+            
+            if (isSolidBlock && !isWater && !isLava && 
+                testBlock.getType() != Material.FIRE && testBlock.getType() != Material.CACTUS) {
+                player.sendMessage(ChatColor.GREEN + "Found safe solid block at Y=" + testY);
+                break;
+            }
+            
+            testY--;
+            iterations++;
+        }
+        
+        if (iterations >= 10) {
+            player.sendMessage(ChatColor.RED + "No safe solid block found in 10 blocks down!");
+        } else {
+            testLoc.setY(testY + 1);
+            boolean finalSafe = GameUtil.isLocationSafe(testLoc);
+            player.sendMessage(ChatColor.YELLOW + "Final scatter location: " + formatLocation(testLoc));
+            player.sendMessage(ChatColor.YELLOW + "Final location safe: " + 
+                (finalSafe ? ChatColor.GREEN + "YES" : ChatColor.RED + "NO"));
+        }
+    }
+
     private void analyzeLocationSafety(Player player, Location loc) {
         World world = loc.getWorld();
         int x = loc.getBlockX();
@@ -473,5 +569,6 @@ public class ScatterDebugCommand extends BaseCommand {
         sender.sendMessage(ChatColor.YELLOW + "/sdebug force scatter" + ChatColor.GRAY + " - Force start improved scatter");
         sender.sendMessage(ChatColor.YELLOW + "/sdebug chunks <x> <z>" + ChatColor.GRAY + " - Check chunk loading around a location");
         sender.sendMessage(ChatColor.YELLOW + "/sdebug loadchunks <x> <z>" + ChatColor.GRAY + " - Force load chunks around a location");
+        sender.sendMessage(ChatColor.YELLOW + "/sdebug test water safety" + ChatColor.GRAY + " - Test water safety detection in location safety checks");
     }
 }

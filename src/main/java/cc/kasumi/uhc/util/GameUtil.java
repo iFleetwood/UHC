@@ -36,6 +36,7 @@ public class GameUtil {
     
     private static final Set<Material> DANGEROUS_MATERIALS = new HashSet<>(Arrays.asList(
         Material.LAVA, Material.STATIONARY_LAVA,
+        Material.WATER, Material.STATIONARY_WATER,
         Material.FIRE, Material.CACTUS,
         Material.WEB, Material.TNT
     ));
@@ -149,6 +150,12 @@ public class GameUtil {
      * Check if a material is passable (player can stand in it)
      */
     private static boolean isPassableMaterial(Material material) {
+        // Explicitly reject water and lava even though they're not solid
+        if (material == Material.WATER || material == Material.STATIONARY_WATER ||
+            material == Material.LAVA || material == Material.STATIONARY_LAVA) {
+            return false;
+        }
+        
         return PASSABLE_MATERIALS.contains(material) || !material.isSolid();
     }
 

@@ -356,14 +356,25 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         // Find the highest block Y coordinate
         int highestY = world.getHighestBlockYAt((int)x, (int)z);
         
-        // Find the actual solid ground
+        // Find the actual safe solid ground
         int y = highestY;
         Block currentBlock = world.getBlockAt((int)x, y, (int)z);
         
-        // If the highest block is air or non-solid, we need to go down
-        while (y > 0 && (!currentBlock.getType().isSolid() || currentBlock.getType() == Material.AIR)) {
+        // Find the highest SAFE solid block (not just any solid block)
+        while (y > 0 && (!isSafeSolidBlock(currentBlock))) {
             y--;
             currentBlock = world.getBlockAt((int)x, y, (int)z);
+        }
+        
+        // Additional safety check - ensure we're not in or above water
+        if (y > 0) {
+            Block blockAbove = world.getBlockAt((int)x, y + 1, (int)z);
+            Block blockTwoAbove = world.getBlockAt((int)x, y + 2, (int)z);
+            
+            // If there's water above our solid ground, this location is unsafe
+            if (isWaterBlock(blockAbove) || isWaterBlock(blockTwoAbove)) {
+                return null; // Return null to indicate this location is unsafe
+            }
         }
         
         // Ensure Y is reasonable
@@ -436,10 +447,25 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             int y = highestY;
             Block currentBlock = world.getBlockAt((int)x, y, (int)z);
             
-            // If the highest block is air or non-solid, we need to go down
-            while (y > 0 && (!currentBlock.getType().isSolid() || currentBlock.getType() == Material.AIR)) {
+            // Find the highest SAFE solid block (not just any solid block)
+            while (y > 0 && (!isSafeSolidBlock(currentBlock))) {
                 y--;
                 currentBlock = world.getBlockAt((int)x, y, (int)z);
+            }
+            
+            // Additional safety check - ensure we're not in or above water
+            if (y > 0) {
+                Block blockAbove = world.getBlockAt((int)x, y + 1, (int)z);
+                Block blockTwoAbove = world.getBlockAt((int)x, y + 2, (int)z);
+                
+                // If there's water above our solid ground, this location is unsafe
+                if (isWaterBlock(blockAbove) || isWaterBlock(blockTwoAbove)) {
+                    if (attempt.attempts <= 5) {
+                        UHC.getInstance().getLogger().info("DEBUG: Rejecting location - water above ground at Y=" + y + 
+                            " above=" + blockAbove.getType() + " twoAbove=" + blockTwoAbove.getType());
+                    }
+                    continue; // Skip this location and try another
+                }
             }
             
             // Debug what we found
@@ -698,7 +724,19 @@ public class ProgressiveScatterManager extends BukkitRunnable {
             double z = center.getZ() + distance * Math.sin(angle);
             
             Location memberLoc = new Location(world, x, 0, z);
-            memberLoc.setY(world.getHighestBlockYAt(memberLoc) + 1);
+            
+            // Find safe ground using our improved method
+            int groundY = world.getHighestBlockYAt(memberLoc);
+            int y = groundY;
+            Block currentBlock = world.getBlockAt((int)x, y, (int)z);
+            
+            // Find the highest SAFE solid block
+            while (y > 0 && (!isSafeSolidBlock(currentBlock))) {
+                y--;
+                currentBlock = world.getBlockAt((int)x, y, (int)z);
+            }
+            
+            memberLoc.setY(y + 1);
             
             // Ensure location is safe
             if (GameUtil.isLocationSafe(memberLoc)) {
@@ -709,7 +747,18 @@ public class ProgressiveScatterManager extends BukkitRunnable {
                 x = center.getX() + distance * Math.cos(angle);
                 z = center.getZ() + distance * Math.sin(angle);
                 memberLoc = new Location(world, x, 0, z);
-                memberLoc.setY(world.getHighestBlockYAt(memberLoc) + 1);
+                
+                // Apply safe ground finding to fallback location too
+                groundY = world.getHighestBlockYAt(memberLoc);
+                y = groundY;
+                currentBlock = world.getBlockAt((int)x, y, (int)z);
+                
+                while (y > 0 && (!isSafeSolidBlock(currentBlock))) {
+                    y--;
+                    currentBlock = world.getBlockAt((int)x, y, (int)z);
+                }
+                
+                memberLoc.setY(y + 1);
                 locations.add(memberLoc);
             }
         }
@@ -919,6 +968,43 @@ public class ProgressiveScatterManager extends BukkitRunnable {
         
         UHC.getInstance().getLogger().info("Preloaded scatter chunks around " + 
             location.getBlockX() + "," + location.getBlockZ());
+    }
+    
+    /**
+     * Check if a block is a safe solid block for players to stand on
+     */
+    private boolean isSafeSolidBlock(Block block) {
+        if (block == null) {
+            return false;
+        }
+        
+        Material material = block.getType();
+        
+        // Must be solid
+        if (!material.isSolid()) {
+            return false;
+        }
+        
+        // Must not be water or other unsafe materials
+        if (isWaterBlock(block) || 
+            material == Material.LAVA || material == Material.STATIONARY_LAVA ||
+            material == Material.FIRE || material == Material.CACTUS) {
+            return false;
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Check if a block is water
+     */
+    private boolean isWaterBlock(Block block) {
+        if (block == null) {
+            return false;
+        }
+        
+        Material material = block.getType();
+        return material == Material.WATER || material == Material.STATIONARY_WATER;
     }
     
     public double getProgress() {
