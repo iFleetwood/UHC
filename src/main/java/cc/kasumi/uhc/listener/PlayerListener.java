@@ -75,11 +75,13 @@ public class PlayerListener implements Listener {
         }.runTaskLater(UHC.getInstance(), 1);
     }
 
+    /*
     /**
      * Handle teleportation events to ensure chunks are loaded at destination
      * This fixes the issue where players fall through the world when teleporting to scattered players
      * Modified for 1.8.8 compatibility - uses synchronous chunk loading
-     */
+
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerTeleport(PlayerTeleportEvent event) {
         if (event.isCancelled()) {
@@ -97,18 +99,18 @@ public class PlayerListener implements Listener {
         }
 
         // Skip if this is a scatter teleport (handled by ProgressiveScatterManager)
-        if (event.getCause() == PlayerTeleportEvent.TeleportCause.PLUGIN && 
+        if (event.getCause() == PlayerTeleportEvent.TeleportCause.PLUGIN &&
             event.getPlayer().hasMetadata("uhc_scatter_teleport")) {
             return;
         }
 
         // Cancel the event temporarily to load chunks first
         event.setCancelled(true);
-        
+
         Player player = event.getPlayer();
         Location originalLocation = event.getFrom();
-        
-        UHC.getInstance().getLogger().info("Pre-loading chunks for teleport: " + 
+
+        UHC.getInstance().getLogger().info("Pre-loading chunks for teleport: " +
             player.getName() + " to " + formatLocation(destination));
 
         // Schedule chunk loading on next tick to avoid cancelling the event in the same tick
@@ -119,37 +121,37 @@ public class PlayerListener implements Listener {
                     // Load chunks in radius around destination (synchronous for 1.8.8)
                     Chunk centerChunk = destination.getChunk();
                     int chunksLoaded = 0;
-                    
+
                     for (int dx = -CHUNK_LOAD_RADIUS; dx <= CHUNK_LOAD_RADIUS; dx++) {
                         for (int dz = -CHUNK_LOAD_RADIUS; dz <= CHUNK_LOAD_RADIUS; dz++) {
                             Chunk chunk = destination.getWorld().getChunkAt(
-                                centerChunk.getX() + dx, 
+                                centerChunk.getX() + dx,
                                 centerChunk.getZ() + dz
                             );
-                            
+
                             if (!chunk.isLoaded()) {
                                 chunk.load(true); // Synchronous loading in 1.8.8
                                 chunksLoaded++;
                             }
                         }
                     }
-                    
+
                     UHC.getInstance().getLogger().info("Loaded " + chunksLoaded + " chunks around teleport destination");
-                    
+
                     // Ensure player is still online and hasn't moved significantly
                     if (player.isOnline() && player.getLocation().distance(originalLocation) < 10) {
                         // Perform the teleport safely
                         player.teleport(destination);
-                        UHC.getInstance().getLogger().info("Successfully teleported " + 
+                        UHC.getInstance().getLogger().info("Successfully teleported " +
                             player.getName() + " to " + formatLocation(destination));
                     } else {
                         UHC.getInstance().getLogger().warning("Teleport cancelled - player moved or went offline");
                     }
-                    
+
                 } catch (Exception e) {
                     UHC.getInstance().getLogger().severe("Error during chunk preloading for teleport: " + e.getMessage());
                     e.printStackTrace();
-                    
+
                     // Fallback: try teleport anyway
                     if (player.isOnline()) {
                         player.teleport(destination);
@@ -158,7 +160,8 @@ public class PlayerListener implements Listener {
             }
         }.runTask(UHC.getInstance()); // Run on main thread for 1.8.8 compatibility
     }
-    
+
+    */
     /**
      * Format location for logging
      */
